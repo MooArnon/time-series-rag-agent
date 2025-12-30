@@ -191,7 +191,7 @@ def run_backfill_bulk_ingest_to_postgresql(
     for features, labels in bulk_data:
         try:
             # We assume your DB class can handle the format
-            db.ingest_feature_label_to_postgresql(features, labels)
+            db.ingest_feature_label_to_postgresql(features, labels, auto_commit=True)
             success_count += 1
             
             if success_count % 500 == 0:
@@ -199,17 +199,8 @@ def run_backfill_bulk_ingest_to_postgresql(
                 logger.info(f"Ingested {success_count} / {len(bulk_data)}")
                 
         except Exception as e:
-            logger.error(f"Failed ingest: {e}")
+            logger.info(f"Failed ingest: {e}")
     db.connector.commit()
     logger.info(f"--- BACKFILL COMPLETE. Ingested {success_count} rows. ---")
-
-##############################################################################
-
-
-
-
-##############################################################################
-
-
 
 ##############################################################################

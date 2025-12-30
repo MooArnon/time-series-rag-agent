@@ -2,8 +2,10 @@
 # Imports #
 ##############################################################################
 
+import os
 import time
 import schedule
+import traceback
 
 from config.config import config
 from flow.ingestion_flow import run_backfill_bulk_ingest_to_postgresql
@@ -11,6 +13,7 @@ from rag.ai.pattern_ai import PatternAI
 from rag.db.postgresql_db import PostgreSQLDB
 from market.binance import BinanceMarket
 from utils.logger import get_utc_logger 
+from utils.discord import DiscordNotify
 
 ############
 # Stattics #
@@ -41,19 +44,31 @@ market = BinanceMarket(
     symbol=symbol,
 )
 
+discord_alert = DiscordNotify(webhook_url=os.environ["DISCORD_ALERT_WEBHOOK_URL"])
+discord_notify = DiscordNotify(webhook_url=os.environ["DISCORD_NOTIFY_WEBHOOK_URL"])
+
 #############
 # Functions #
 ##############################################################################
 
 def main() -> None:
-    run_backfill_bulk_ingest_to_postgresql(
-        logger=logger,
-        ai=ai,
-        db=db,
-        market=market,
-        symbol=symbol,
-        total_candles=total_candles,
-    )
+    try:
+        time.sleep(10)
+        run_backfill_bulk_ingest_to_postgresql(
+            logger=logger,
+            ai=ai,
+            db=db,
+            market=market,
+            symbol=symbol,
+            total_candles=total_candles,
+        )
+    except Exception as e:
+        discord_alert.sent_message(
+            message=f":warning: Error running live: {e}",
+            username="ingest_binance_data"
+        )
+        logger.error(f"Error running live: {e}")
+        traceback.print_exc()
 
 ##############################################################################
 
@@ -65,7 +80,6 @@ schedule.every().hour.at(":45").do(main)
 
 if __name__ == "__main__":
     while True:
-        time.sleep(10)
         schedule.run_pending()
         time.sleep(1)
 
