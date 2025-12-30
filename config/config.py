@@ -21,5 +21,5 @@ config['LLM_CONFIDENCE_PERCENTAGE_THRESHOLD'] = int(os.getenv("LLM_CONFIDENCE_PE
 config['DB_HOST'] = os.environ['DB_HOST']
 config['DB_PORT'] = os.environ['DB_PORT']
 config['DB_USER'] = os.environ['DB_USER']
-config['DB_PASSWORD'] =os.environ['DB_PASSWORD']
+config['DB_PASSWORD'] = secrets_dict['TRADING_BOT_DB_POSTGRESQL_PASSWORD']
 config['DB_NAME'] = os.environ['DB_NAME']
