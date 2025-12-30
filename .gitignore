@@ -208,3 +208,6 @@ __marimo__/
 
 set_env_dev.sh
 set_env_prod.sh
+
+*.png
+*.csv

@@ -15,7 +15,14 @@ class BaseMarket:
     ##########################################################################
 
     @abstractmethod
-    def get_data(self, timeframe: str, period: int, *args, **kawrgs) -> None:
+    def get_data(
+            symbol: str, 
+            target_date: str, 
+            interval: str,
+            limit: int = 30, 
+            *args, 
+            **kawrgs,
+    ) -> None:
         """The mandatory method to get data from market
 
         Parameters

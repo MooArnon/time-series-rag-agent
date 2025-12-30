@@ -4,7 +4,7 @@
 
 import time
 import os
-from datetime import datetime, timezone
+import datetime
 import math
 import traceback
 import requests
@@ -26,7 +26,7 @@ from utils.cloud_watch import send_trading_signal
 class BinanceMarket(BaseMarket):
     
     kline_columns = [
-        'open_time', 'open', 'high', 'low', 'close', 'volume', 
+        'timestamp', 'open', 'high', 'low', 'close', 'volume', 
         'close_time', 'quote_asset_volume', 'number_of_trades', 
         'taker_buy_base', 'taker_buy_quote', 'ignore'
     ]
@@ -107,35 +107,74 @@ class BinanceMarket(BaseMarket):
     
     ##########################################################################
 
-    def get_data(
-            self, 
-            symbol: str, 
-            target_date: str, 
-            limit: int = 30,
-            interval: str = Client.KLINE_INTERVAL_1MINUTE,
-    ) -> None:
-        
-        if interval == "1m":
-            interval = Client.KLINE_INTERVAL_1MINUTE
-        elif interval == "15m":
-            interval = Client.KLINE_INTERVAL_15MINUTE
-        
+    def fetch_batch(self, symbol, interval, end_time_ms, limit):
+        """Helper function to fetch a single batch of data"""
         params = {
             "symbol": symbol.upper(),
             "interval": interval,
-            "limit": limit
+            "limit": limit,
+            "endTime": end_time_ms
         }
-        
-        minutes_to_subtract = 1 * limit
-        duration = datetime.timedelta(minutes=minutes_to_subtract)
-        params["endTime"] = int(target_date.timestamp() * 1000)
-        params["startTime"] = int(
-            (target_date - duration).timestamp() * 1000
-        )
-        response = requests.get(self.base_url_usdm_market, params=params)
-        self.logger.debug(f"{params}")
-        return  pd.DataFrame(response.json(), columns=self.kline_columns)
+        try:
+            response = requests.get("https://fapi.binance.com/fapi/v1/klines", params=params)
+            response.raise_for_status() # Check for HTTP errors
+            return response.json()
+        except Exception as e:
+            print(f"Request failed: {e}")
+            return []
+
+    ##########################################################################
     
+    def get_data(
+            self, 
+            symbol, 
+            target_date, 
+            total_rows, 
+            interval,
+            batch_limit = 500,
+    ) -> pd.DataFrame:
+        all_kline_data = []
+        
+        # Start from the target date (converted to milliseconds)
+        current_end_time = int(target_date.timestamp() * 1000)
+        
+        rows_fetched = 0
+        
+        print(f"Fetching {total_rows} rows for {symbol}...")
+        
+        while rows_fetched < total_rows:
+            # Calculate how many rows we still need for this batch
+            remaining = total_rows - rows_fetched
+            # Don't ask for more than the API allows (BATCH_LIMIT)
+            limit = min(remaining, batch_limit)
+            
+            batch_data = self.fetch_batch(symbol, interval, current_end_time, limit)
+            
+            if not batch_data:
+                print("No more data received or error occurred.")
+                break
+                
+            # Binance returns data [oldest -> newest]. 
+            # Since we are going backward in time, we prepend this batch to our main list.
+            all_kline_data = batch_data + all_kline_data
+            
+            rows_fetched += len(batch_data)
+            print(f"Fetched {len(batch_data)} rows. Total: {rows_fetched}/{total_rows}")
+            
+            # IMPORTANT: Set the endTime for the next loop to be just BEFORE
+            # the oldest candle we just fetched.
+            oldest_timestamp_in_batch = batch_data[0][0]
+            current_end_time = oldest_timestamp_in_batch - 1
+            
+            # Sleep briefly to avoid hitting Binance rate limits (IP ban risk)
+            time.sleep(0.1)
+
+        df = pd.DataFrame(all_kline_data, columns=self.kline_columns)
+        
+        # Format timestamp
+        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+        return df
+        
     ##########################################################################
     
     def open_order_flow(self, signal: str, bot_type: str) -> None:
@@ -992,7 +1031,7 @@ class BinanceMarket(BaseMarket):
             # Calculate the start time for the current day 
             # in UTC (midnight)
             if (end_time is None) and (start_time is None):
-                end_time = datetime.now(timezone.utc)
+                end_time = datetime.now(datetime.timezone.utc)
                 start_time = end_time.replace(
                     hour=0, 
                     minute=0,
@@ -1020,7 +1059,7 @@ class BinanceMarket(BaseMarket):
             # Optionally, print detailed PnL entries
             for entry in pnl_data:
                 timestamp = datetime.fromtimestamp(
-                    entry['time'] / 1000, tz=timezone.utc
+                    entry['time'] / 1000, tz=datetime.timezone.utc
                 )
                 income = float(entry['income'])
                 self.logger.info(f"Time: {timestamp}, PnL: {income} USDT")
