@@ -7,6 +7,7 @@ trading_bot_secrets = get_secret("trading-bot")
 secrets_dict = eval(trading_bot_secrets)
 os.environ["BINANCE_API_KEY"] = secrets_dict['BINANCE_API_KEY']
 os.environ["BINANCE_SECRET_KEY"] = secrets_dict['BINANCE_SECRET_KEY']
+os.environ["DB_PASSWORD"] = secrets_dict['TRADING_BOT_DB_POSTGRESQL_PASSWORD']
 
 config['BINANCE_API_KEY'] = secrets_dict['BINANCE_API_KEY']
 config['BINANCE_SECRET_KEY'] = secrets_dict['BINANCE_SECRET_KEY']
