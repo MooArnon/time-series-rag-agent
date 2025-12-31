@@ -206,8 +206,8 @@ class PostgreSQLDB(BaseDB):
             target_time: str,
             time_column: str,
             vector_column: str,
+            top_k: int,
             table_name="market_pattern", 
-            top_k=5,
     ) -> list:
         """
         1. Fetches the embedding for the specific target_time.

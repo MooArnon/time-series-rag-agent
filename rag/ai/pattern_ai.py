@@ -2,14 +2,23 @@
 # Imports #
 ##############################################################################
 
+import ast
 from logging import Logger
+import requests
+import json
+import re
+import io
+import base64
 import os
+import traceback
 
 import pandas as pd
 import numpy as np
+import matplotlib.pyplot as plt
 from numpy.lib.stride_tricks import sliding_window_view
 
 from.__base_ai import BaseAI
+from config.config import config
 from utils.logger import get_utc_logger
 
 ###########
@@ -20,12 +29,15 @@ class PatternAI(BaseAI):
     """
     Base class for AI components.
     """
+    bot_type="LLMPatternAI"
+    
     def __init__(
             self, 
             symbol: str,
             timeframe: int,
+            model: str,
             vector_window: int = 60,
-            logger = None
+            logger = None,
     ) -> None:
         if logger is None:
             self.__logger: Logger = get_utc_logger(
@@ -39,6 +51,7 @@ class PatternAI(BaseAI):
         self.__symbol = symbol
         self.__time_frame = timeframe
         self.__vector_window = vector_window
+        self.model = model
         
     ##############
     # Properties #
@@ -350,4 +363,316 @@ class PatternAI(BaseAI):
 
     ##########################################################################
     
+    def generate_signal(
+            self, 
+            current_time: str,
+            matched_data: object,
+            current_vector: object,
+            plot_file_name: os.PathLike = None,
+    ) -> pd.DataFrame:
+        self.logger.info("Generating signal using LLM...")
+        
+        image_b64 = self.plot_patterns_to_base64(
+            current_vec=current_vector,
+            rag_matches=matched_data
+        )
+        
+        if plot_file_name is not None:
+            import base64
+            image_data = base64.b64decode(image_b64)
+            with open(plot_file_name, "wb") as file:
+                file.write(image_data)
+        
+        message = self.generate_trading_prompt(
+            current_time=current_time,
+            matched_data=matched_data,
+            image_b64=image_b64
+        )
+
+        # B. Define Headers
+        headers = {
+            "Authorization": f"Bearer {config['OPENAI_API_KEY']}",
+            "Content-Type": "application/json"
+        }
+
+        # C. Define Payload (Multimodal)
+        payload = {
+            # Use the correct slug for Claude 3.5 Sonnet
+            "model": self.model, 
+            "messages": message,
+        }
+        
+        # D. Send POST Request
+        try:
+            self.logger.info(f"Sending payload to LLM: {self.model}")
+            response = requests.post(
+                url="https://openrouter.ai/api/v1/chat/completions",
+                headers=headers,
+                data=json.dumps(payload)
+            )
+            
+            # Check for errors
+            response.raise_for_status()
+            
+            # E. Parse Response
+            result = response.json()
+            content = self.extract_content(response=result)
+            
+            self.logger.info(f"LLM Signal: {content['signal']}, Confidence: {content['confidence']}")
+            self.logger.info(f"LLM Reasoning: {content['reasoning']}")
+            
+            # Filter LLM noise using confidence score
+            if content["confidence"] < config['LLM_CONFIDENCE_PERCENTAGE_THRESHOLD']:
+                self.logger.warning("Low confidence in signal. Defaulting to HOLD.")
+                return 0
+            return content
+
+        except Exception as e:
+            self.logger.info(f"Error calling OpenRouter: {e}")
+            traceback.print_exc()
+        return None
+    
+    ##########################################################################
+    
+    @staticmethod
+    def generate_trading_prompt(current_time, matched_data, image_b64):
+        """
+        Constructs a prompt for GPT-4o combining Visual + Statistical Data.
+        """
+        
+        # 1. Summarize the Statistical Data
+        # We calculate the "Average Outcome" to give the LLM a hint
+        returns = [m['next_return'] for m in matched_data]
+        avg_return = sum(returns) / len(returns)
+        positive_outcomes = len([r for r in returns if r > 0])
+        
+        # Clean the data (remove embeddings to save tokens)
+        clean_data = []
+        for m in matched_data:
+            clean_data.append({
+                "time": m['time'],
+                "similarity_score": round(m['similarity_score'], 4),
+                "next_return_pct": f"{m['next_return']*100:.4f}%",  # Convert to %
+                "outcome": "UP" if m['next_return'] > 0 else "DOWN"
+            })
+
+        # 2. Build the System Prompt (The Persona)
+        system_message = """
+        You are an expert Quantitative Trader AI. Your job is to analyze current market patterns 
+        by comparing them to historical precedents (RAG).
+        
+        You have two inputs:
+        1. An Image showing the Current Market Pattern (Black Line) vs. Top 10 Historical Matches.
+            The green lines mean the historical data that will move up (plus return).
+            And the red lines mean the historical data that will move down (minus return).
+        2. A Data List showing what happened immediately after those historical matches.
+        
+        Your Output must be a strict JSON object:
+        {
+            "reasoning": "Brief analysis of the visual pattern and statistical consensus...",
+            "signal": "LONG" | "SHORT" | "HOLD",
+            "confidence": 0.0 to 1.0
+        }
+        
+        Rules for Signal:
+        - If Visuals are messy/divergent AND Stats are mixed -> HOLD.
+        - If Visuals look tight/consistent AND Stats are >70% aligned -> LONG/SHORT.
+        - Also consider the appearance of lines they might be not tight but looks the same shape -> LONG/SHORT.
+        """
+
+        # 3. Build the User Message (The Evidence)
+        user_content = f"""
+        ### 1. Current Context
+        - **Analysis Time:** {current_time}
+        - **Statistical Consensus:** {positive_outcomes}/{len(returns)} precedents went UP.
+        - **Average Return of Matches:** {avg_return*100:.4f}%
+
+        ### 2. Historical Data (Top Matches)
+        {json.dumps(clean_data, indent=2)}
+
+        ### 3. Visual Analysis
+        Please look at the attached chart. 
+        - The BLACK line is the current price action.
+        - The COLORED lines are the historical matches.
+        - The DOTTED lines to the right are the "Future" outcomes of those matches.
+        
+        **Task:**
+        Does the Black line follow a clear pattern that aligns with the historical outcomes?
+        Predict the next move.
+        """
+
+        payload = [
+            {"role": "system", "content": system_message},
+            {"role": "user", "content": [
+                {"type": "text", "text": user_content},
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": f"data:image/png;base64,{image_b64}"
+                    }
+                }
+            ]}
+        ]
+        
+        return payload
+    
+    ##########################################################################
+    
+    def plot_patterns_to_base64(self, current_vec, rag_matches):
+        """
+        Plots the Current Market (Black) vs Historical Matches (Red/Green).
+        """
+        plt.figure(figsize=(12, 6))
+        
+        # ---------------------------------------------------------
+        # 1. PROCESS CURRENT MARKET (Black Line)
+        # ---------------------------------------------------------
+        # Parse and reconstruct price shape
+        curr_data = self.parse_vector(current_vec)
+        if not curr_data: return "Error: No current data"
+        
+        # Turn vector into a line shape
+        curr_prices = self.vector_to_price_shape(curr_data)
+        
+        # Normalize to start at 0% (Standard Percentage Yield)
+        curr_norm = (curr_prices / curr_prices[0]) - 1
+        
+        x_current = np.arange(len(curr_norm))
+        plt.plot(x_current, curr_norm, color='black', linewidth=3, label='Current Market', zorder=10)
+
+        # ---------------------------------------------------------
+        # 2. PROCESS HISTORICAL MATCHES (Red/Green Lines)
+        # ---------------------------------------------------------
+        for match in rag_matches:
+            # A. Parse the historical vector
+            hist_vec = self.parse_vector(match.get('embedding'))
+            if not hist_vec: continue
+            
+            # B. Reconstruct its shape
+            hist_prices = self.vector_to_price_shape(hist_vec)
+            hist_norm = (hist_prices / hist_prices[0]) - 1
+            
+            # C. Prepare "Future" Tail
+            # We simulate the future path using the scalar 'next_return'
+            future_return = match.get('next_return', 0.0)
+            
+            # Determine Color: Green if future is UP, Red if DOWN
+            color = '#2ecc71' if future_return > 0 else '#e74c3c' # Flat UI colors
+            
+            # Plot the PAST (The Pattern)
+            plt.plot(x_current, hist_norm, color=color, alpha=0.3, linewidth=1.5)
+            
+            # Plot the FUTURE (The Outcome Projection)
+            # We draw a dashed line from the last point to the target return
+            last_val = hist_norm[-1]
+            target_val = last_val + future_return # Approximate visual target
+            
+            # Create X-axis for future (e.g., next 12 steps)
+            future_steps = 12 
+            x_future = np.arange(len(hist_norm)-1, len(hist_norm) + future_steps)
+            y_future = np.linspace(last_val, target_val, len(x_future))
+            
+            plt.plot(x_future, y_future, color=color, alpha=0.6, linestyle='--', linewidth=1.5)
+
+        # ---------------------------------------------------------
+        # 3. FORMATTING
+        # ---------------------------------------------------------
+        # Vertical Line at "Right Now"
+        plt.axvline(x=len(curr_norm)-1, color='blue', linestyle='--', label='Right Now')
+        
+        plt.title(f"Pattern Analysis: Top {len(rag_matches)} Historical Matches", fontsize=14)
+        plt.xlabel("Time Steps (Candles)")
+        plt.ylabel("Reconstructed Price Action (Normalized)")
+        plt.legend(loc='upper left')
+        plt.grid(True, alpha=0.3)
+        
+        # ---------------------------------------------------------
+        # 4. SAVE TO BASE64 (For LLM / Web UI)
+        # ---------------------------------------------------------
+        buf = io.BytesIO()
+        plt.savefig(buf, format='png', bbox_inches='tight')
+        buf.seek(0)
+        image_base64 = base64.b64encode(buf.read()).decode('utf-8')
+        plt.close()
+        buf.close()
+        return image_base64
+    
+    ##########################################################################
+    
+    @staticmethod
+    def parse_vector(vec_data):
+        """
+        Converts database string output (e.g. "[-0.1, 0.5]") into a list of floats.
+        """
+        # Case 1: Already a list? Return it.
+        if isinstance(vec_data, list):
+            return vec_data
+        
+        # Case 2: It's a string. Parse it.
+        if isinstance(vec_data, str):
+            # Clean up Postgres formatting just in case
+            clean_str = vec_data.strip()
+            
+            # Handle Postgres Array format '{1,2,3}' if necessary
+            if clean_str.startswith('{') and clean_str.endswith('}'):
+                clean_str = clean_str.replace('{', '[').replace('}', ']')
+                
+            try:
+                # Try JSON parsing first (fastest/standard for pgvector)
+                return json.loads(clean_str)
+            except json.JSONDecodeError:
+                try:
+                    # Fallback to literal eval (safer python parsing)
+                    return ast.literal_eval(clean_str)
+                except:
+                    # Last resort: manual string splitting
+                    return [float(x) for x in clean_str.strip('[]').split(',')]
+                    
+        return []
+
+    ##########################################################################
+
+    @staticmethod
+    def vector_to_price_shape(embedding, start_price=100):
+        """
+        Reconstructs a 'price-like' curve from a Z-score vector.
+        Since Embedding ~= Log Returns, CumSum(Embedding) ~= Log Price Curve.
+        """
+        vec = np.array(embedding)
+        # 1. De-normalize roughly (assuming std deviation of 1%)
+        # This restores the "magnitude" of movement for visualization
+        simulated_returns = vec * 0.01 
+        
+        # 2. Reconstruct Price Path
+        price_path = [start_price]
+        for r in simulated_returns:
+            price_path.append(price_path[-1] * (1 + r))
+        
+        # Drop the dummy start
+        return np.array(price_path[1:]) 
+    
+    ############################
+    # Extract content from LLM #
+    ##########################################################################
+    
+    def extract_content(self, response: json):
+        if self.model in [
+            "google/gemini-2.5-flash", 
+            "openai/gpt-4o",
+        ]:
+            # Structure response
+            content = response['choices'][0]['message']['content']
+            content = re.sub(r"```json\n|\n```", "", content).strip()
+            content = json.loads(content)
+        
+        elif self.model in ["anthropic/claude-3.5-sonnet"]:
+            content = response['choices'][0]['message']['content']
+            content = json.loads(content)
+        return content
+    
+    ##########################################################################
+    
+    
+    ##########################################################################
+
 ##############################################################################

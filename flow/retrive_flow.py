@@ -2,18 +2,13 @@
 # Imports #
 ##############################################################################
 
-import ast
 from datetime import datetime
-import json
+import os
 from zoneinfo import ZoneInfo
 from logging import Logger
-import io
-import base64
-
-import numpy as np
-import matplotlib.pyplot as plt
 
 from config.config import config
+from utils.discord import DiscordNotify
 from market.__base import BaseMarket
 from rag.ai.__base_ai import BaseAI
 from rag.db.__base_db import BaseDB
@@ -31,14 +26,23 @@ def retrive_data(
         logger: Logger,
         ai: BaseAI,
         db: BaseDB,
+        market,
         symbol: str,
+        notifier: DiscordNotify,
+        is_open_order: bool = False,
         interval: str = "15m",
         time_column: str = "time",
         vector_column: str = "embedding",
         table_name: str = "market_pattern",
-        top_k: int = 10
+        top_k: int = 10,
+        plot_file_name: os.PathLike = "market_pattern_plot.png",
 ) -> None:
     logger.info('Start flow to retrive data')
+    logger.info('Checking position...')
+    contract = market.check_position_opening(symbol)
+    if contract in ["LONG", "SHORT"]:
+        logger.info(f'Contract exists {contract} end flow.')
+        return
     
     # 1. Get current timestamp
     current_timestamp = datetime.now(ZoneInfo("Asia/Bangkok"))
@@ -58,149 +62,51 @@ def retrive_data(
         top_k=top_k,
     )
     
-    print(top_k)
+    logger.info(f"Generating plot")
     
-    base64_image = plot_patterns_to_base64(target_vec, top_k)
+    ai_content = ai.generate_signal(
+        current_time=current_timestamp,
+        matched_data=top_k,
+        current_vector=target_vec,
+        plot_file_name=plot_file_name
+        
+    )
+    
+    if is_open_order is True:
+        signal = ai_content['signal']
+        market.open_order_flow(
+            signal=signal,
+            bot_type=ai.bot_type,
+        )
+        
+        confidence = ai_content['confidence']
+        reasoning = ai_content['reasoning']
+        
+        message_to_sent = get_message_to_notify_open_order(
+            bot_type=ai.bot_type,
+            signal=signal,
+            confidence=confidence,
+            reason=reasoning,
+        )
+        notifier.sent_message(message_to_sent)
+        notifier.sent_message_image(
+            message = "Pattern image",
+            file_path = plot_file_name,
+        )
     
     logger.info('End flow to retrive data')
     return None
 
-#########
-# Utils #
 ##############################################################################
 
-def parse_vector(vec_data):
-    """
-    Converts database string output (e.g. "[-0.1, 0.5]") into a list of floats.
-    """
-    # Case 1: Already a list? Return it.
-    if isinstance(vec_data, list):
-        return vec_data
-    
-    # Case 2: It's a string. Parse it.
-    if isinstance(vec_data, str):
-        # Clean up Postgres formatting just in case
-        clean_str = vec_data.strip()
-        
-        # Handle Postgres Array format '{1,2,3}' if necessary
-        if clean_str.startswith('{') and clean_str.endswith('}'):
-            clean_str = clean_str.replace('{', '[').replace('}', ']')
-            
-        try:
-            # Try JSON parsing first (fastest/standard for pgvector)
-            return json.loads(clean_str)
-        except json.JSONDecodeError:
-            try:
-                # Fallback to literal eval (safer python parsing)
-                return ast.literal_eval(clean_str)
-            except:
-                # Last resort: manual string splitting
-                return [float(x) for x in clean_str.strip('[]').split(',')]
-                
-    return []
-
-##############################################################################
-
-def vector_to_price_shape(embedding, start_price=100):
-    """
-    Reconstructs a 'price-like' curve from a Z-score vector.
-    Since Embedding ~= Log Returns, CumSum(Embedding) ~= Log Price Curve.
-    """
-    vec = np.array(embedding)
-    # 1. De-normalize roughly (assuming std deviation of 1%)
-    # This restores the "magnitude" of movement for visualization
-    simulated_returns = vec * 0.01 
-    
-    # 2. Reconstruct Price Path
-    price_path = [start_price]
-    for r in simulated_returns:
-        price_path.append(price_path[-1] * (1 + r))
-    
-    return np.array(price_path[1:]) # Drop the dummy start
-
-##############################################################################
-
-def plot_patterns_to_base64(current_vec, rag_matches):
-    """
-    Plots the Current Market (Black) vs Historical Matches (Red/Green).
-    """
-    plt.figure(figsize=(12, 6))
-    
-    # ---------------------------------------------------------
-    # 1. PROCESS CURRENT MARKET (Black Line)
-    # ---------------------------------------------------------
-    # Parse and reconstruct price shape
-    curr_data = parse_vector(current_vec)
-    if not curr_data: return "Error: No current data"
-    
-    # Turn vector into a line shape
-    curr_prices = vector_to_price_shape(curr_data)
-    
-    # Normalize to start at 0% (Standard Percentage Yield)
-    curr_norm = (curr_prices / curr_prices[0]) - 1
-    
-    x_current = np.arange(len(curr_norm))
-    plt.plot(x_current, curr_norm, color='black', linewidth=3, label='Current Market', zorder=10)
-
-    # ---------------------------------------------------------
-    # 2. PROCESS HISTORICAL MATCHES (Red/Green Lines)
-    # ---------------------------------------------------------
-    for match in rag_matches:
-        # A. Parse the historical vector
-        hist_vec = parse_vector(match.get('embedding'))
-        if not hist_vec: continue
-        
-        # B. Reconstruct its shape
-        hist_prices = vector_to_price_shape(hist_vec)
-        hist_norm = (hist_prices / hist_prices[0]) - 1
-        
-        # C. Prepare "Future" Tail
-        # We simulate the future path using the scalar 'next_return'
-        future_return = match.get('next_return', 0.0)
-        
-        # Determine Color: Green if future is UP, Red if DOWN
-        color = '#2ecc71' if future_return > 0 else '#e74c3c' # Flat UI colors
-        
-        # Plot the PAST (The Pattern)
-        plt.plot(x_current, hist_norm, color=color, alpha=0.3, linewidth=1.5)
-        
-        # Plot the FUTURE (The Outcome Projection)
-        # We draw a dashed line from the last point to the target return
-        last_val = hist_norm[-1]
-        target_val = last_val + future_return # Approximate visual target
-        
-        # Create X-axis for future (e.g., next 12 steps)
-        future_steps = 12 
-        x_future = np.arange(len(hist_norm)-1, len(hist_norm) + future_steps)
-        y_future = np.linspace(last_val, target_val, len(x_future))
-        
-        plt.plot(x_future, y_future, color=color, alpha=0.6, linestyle='--', linewidth=1.5)
-
-    # ---------------------------------------------------------
-    # 3. FORMATTING
-    # ---------------------------------------------------------
-    # Vertical Line at "Right Now"
-    plt.axvline(x=len(curr_norm)-1, color='blue', linestyle='--', label='Right Now')
-    
-    plt.title(f"Pattern Analysis: Top {len(rag_matches)} Historical Matches", fontsize=14)
-    plt.xlabel("Time Steps (Candles)")
-    plt.ylabel("Reconstructed Price Action (Normalized)")
-    plt.legend(loc='upper left')
-    plt.grid(True, alpha=0.3)
-    
-    plt.show()
-    
-    # ---------------------------------------------------------
-    # 4. SAVE TO BASE64 (For LLM / Web UI)
-    # ---------------------------------------------------------
-    buf = io.BytesIO()
-    plt.savefig(buf, format='png', bbox_inches='tight')
-    buf.seek(0)
-    image_base64 = base64.b64encode(buf.read()).decode('utf-8')
-    plt.close()
-    buf.close()
-    
-    print("Plot generated successfully!")
-    return image_base64
+def get_message_to_notify_open_order(
+        bot_type: str, 
+        signal: str,
+        confidence: float,
+        reason: str,
+) -> str:
+    return f"""{bot_type} opened contract {signal} with confidense {confidence}.
+Reason: {reason}
+"""
 
 ##############################################################################

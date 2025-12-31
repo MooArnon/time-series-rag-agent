@@ -17,7 +17,8 @@ config['BANDWIDTH_THRESHOLD'] = float(os.getenv("BANDWIDTH_THRESHOLD", 0.003))
 
 config['OPENAI_API_KEY'] = os.getenv("OPENAI_API_KEY", None)
 
-config['LLM_CONFIDENCE_PERCENTAGE_THRESHOLD'] = int(os.getenv("LLM_CONFIDENCE_PERCENTAGE_THRESHOLD", 75))
+config['LLM_MODEL'] = os.getenv("LLM_MODEL", None)
+config['LLM_CONFIDENCE_PERCENTAGE_THRESHOLD'] = int(os.getenv("LLM_CONFIDENCE_PERCENTAGE_THRESHOLD", 0.65))
 
 config['DB_HOST'] = os.environ['DB_HOST']
 config['DB_PORT'] = os.environ['DB_PORT']

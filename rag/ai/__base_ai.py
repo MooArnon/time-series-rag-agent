@@ -30,6 +30,16 @@ class BaseAI:
     def logger(self) -> Logger:
         return self.__logger
     
+    ##########################################################################
+    
+    @property
+    def get_signal_mapper(self) -> dict:
+        return {
+            -1: "SHORT",
+            0: "HOLD",
+            1: "LONG",
+        }
+    
     ###########
     # Methods #
     ##########################################################################

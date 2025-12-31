@@ -48,7 +48,6 @@ def ingest_to_postgresql(
     features = ai.calculate_features(data)
     label = ai.calculate_labels(data)
     
-    print(label)
     db.ingest_feature_label_to_postgresql(features, label)
     
     logger.info('End flow Ingest to PostgreSQL')
