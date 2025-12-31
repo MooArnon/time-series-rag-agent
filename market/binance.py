@@ -275,7 +275,7 @@ class BinanceMarket(BaseMarket):
             return
 
         self.logger.info(
-            f"Open position for {symbol}: {position_amt} at entry price {entry_price}"
+            f"Position existed for {symbol}: {position_amt} at entry price {entry_price}"
         )
         
         if position_amt > 0:
@@ -1073,7 +1073,7 @@ class BinanceMarket(BaseMarket):
     
     def __load_exchange_info(self):
         """Fetches exchange information and extracts PRICE_FILTER and LOT_SIZE rules."""
-        print("Fetching exchange information for futures symbols...")
+        self.logger.info("Fetching exchange information for futures symbols...")
         try:
             info = self.client.futures_exchange_info()
             for symbol_data in info['symbols']:
