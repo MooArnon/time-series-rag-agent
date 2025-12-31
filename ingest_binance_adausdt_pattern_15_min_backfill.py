@@ -5,6 +5,7 @@
 import os
 import time
 import schedule
+import subprocess
 import traceback
 
 from config.config import config
@@ -23,7 +24,7 @@ symbol = 'ADAUSDT'
 vector_window = 60
 # days = 365*3
 # days = 1
-total_candles = 5
+total_candles = 20
 
 logger = get_utc_logger(__name__)
 
@@ -70,11 +71,13 @@ def main() -> None:
         )
         logger.error(f"Error running live: {e}")
         traceback.print_exc()
+    
+    subprocess.run(["python", "retrive_signal.py", "--is-open-order", "True"])
 
 ##############################################################################
 
 # Schedule it at specific minutes
-schedule.every().hour.at(":00").do(main)
+schedule.every().hour.at(":01").do(main)
 schedule.every().hour.at(":30").do(main)
 
 if __name__ == "__main__":
