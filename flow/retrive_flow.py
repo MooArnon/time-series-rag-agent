@@ -72,6 +72,10 @@ def retrive_data(
         
     )
     
+    if ai_content == 0:
+        logger.info("Got HOLD position.... end flow")
+        return 
+    
     if is_open_order is True:
         signal = ai_content['signal']
         market.open_order_flow(
