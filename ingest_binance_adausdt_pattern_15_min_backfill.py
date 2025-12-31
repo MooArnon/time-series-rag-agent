@@ -32,6 +32,7 @@ ai = PatternAI(
     timeframe="15m",
     vector_window=60,
     logger=logger,
+    model="MOCKUP",
 )
 
 db = PostgreSQLDB(
@@ -74,9 +75,7 @@ def main() -> None:
 
 # Schedule it at specific minutes
 schedule.every().hour.at(":00").do(main)
-schedule.every().hour.at(":15").do(main)
 schedule.every().hour.at(":30").do(main)
-schedule.every().hour.at(":45").do(main)
 
 if __name__ == "__main__":
     while True:
