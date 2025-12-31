@@ -23,7 +23,7 @@ from utils.discord import DiscordNotify
 
 symbol = 'ADAUSDT'
 vector_window = 60
-top_k = 5 
+top_k = config['PATTERN_LLM_TOP_K']
 
 logger = get_utc_logger(__name__)
 
