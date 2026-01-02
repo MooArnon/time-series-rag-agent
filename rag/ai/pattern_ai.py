@@ -467,6 +467,17 @@ class PatternAI(BaseAI):
             And the red lines mean the historical data that will move down (minus return).
         2. A Data List showing what happened immediately after those historical matches.
         
+        Data Context: Normalized Market VectorThe numerical sequence provided is a Z-Score Normalized Log-Return Vector representing the market's "shape" over the last 60 periods.
+        Calculation Logic:Log Returns: We calculate the relative price change using natural logarithms ($\ln(P_t) - \ln(P_{t-1})$).Z-Score 
+        Normalization: These returns are standardized using the mean and standard deviation of the specific window ($z = \frac{x - \mu}{\sigma}$).
+        How to Interpret:
+            Stationary: 
+                The data is scale-invariant. It does not matter if the price is $10 or $10,000.
+            Values:
+                0.0: Represents an "average" move for this specific window.
+                > +2.0: Represents a statistically significant upward outlier (strong momentum).
+                < -2.0: Represents a statistically significant downward outlier (strong crash).
+        
         Your Output must be a strict JSON object:
         {
             "reasoning": "Brief analysis of the visual pattern and statistical consensus...",
