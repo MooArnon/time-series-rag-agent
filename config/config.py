@@ -20,6 +20,7 @@ config['BANDWIDTH_THRESHOLD'] = float(os.getenv("BANDWIDTH_THRESHOLD", 0.003))
 config['OPENAI_API_KEY'] = os.getenv("OPENAI_API_KEY", None)
 
 config['PATTERN_LLM_TOP_K'] = os.getenv("PATTERN_LLM_TOP_K", 5)
+config['DISTANCE_THRESHOLD'] = float(os.getenv("DISTANCE_THRESHOLD", 0.45))
 config['LLM_MODEL'] = os.getenv("LLM_MODEL", None)
 config['LLM_CONFIDENCE_PERCENTAGE_THRESHOLD'] = float(os.getenv("LLM_CONFIDENCE_PERCENTAGE_THRESHOLD", 0.65))
 

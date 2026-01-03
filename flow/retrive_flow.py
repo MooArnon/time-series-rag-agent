@@ -62,7 +62,15 @@ def retrive_data(
         top_k=top_k,
     )
     
-    logger.info(f"Generating plot")
+    _, _, average_distance = get_min_max_distinct(top_k)
+    if average_distance > config['DISTANCE_THRESHOLD']:
+        logger.info(
+            "The average distance from query is " \
+            + f"{average_distance} more than {config['DISTANCE_THRESHOLD']} skip pipeline"
+        )
+        return
+    
+    logger.info(f"Average distance is {config['DISTANCE_THRESHOLD']} continue pipeline")
     
     ai_content = ai.generate_signal(
         current_time=current_timestamp,
@@ -112,5 +120,31 @@ def get_message_to_notify_open_order(
     return f"""{bot_type} opened contract {signal} with confidense {confidence}.
 Reason: {reason}
 """
+
+##############################################################################
+
+def get_min_max_distinct(items, key='distance'):
+    if not items:
+        return []
+    
+    # 1. Sort the list by the chosen metric (e.g., distance)
+    sorted_items = sorted(items, key=lambda x: x[key])
+    
+    # 2. Extract Min and Max
+    min_item = sorted_items[1]
+    max_item = sorted_items[-1]
+    
+    # 3. Ensure they are distinct (handle lists with 1 item or identical values)
+    # We compare the 'time' or unique ID to ensure we don't return the same object twice if the list is short
+    if min_item['time'] == max_item['time']:
+        return [min_item]
+    
+    selected = {min_item['time']: min_item, max_item['time']: max_item}
+    distinct_elements = list(selected.values())
+    
+    distance = [abs(item['distance']) for item in distinct_elements]
+    average_distance = sum((distance)) / len(distance)
+    
+    return [min_item, max_item, average_distance]
 
 ##############################################################################
