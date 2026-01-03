@@ -211,3 +211,5 @@ set_env_prod.sh
 
 *.png
 *.csv
+
+check_outputs
