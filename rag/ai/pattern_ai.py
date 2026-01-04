@@ -437,46 +437,57 @@ class PatternAI(BaseAI):
     @staticmethod
     def generate_trading_prompt(current_time, matched_data, image_b64):
         """
-        Constructs a prompt for GPT-4o combining Visual + Statistical Data.
+        Constructs a prompt for GPT-4o/Claude combining Visual + Statistical Trend Data.
+        Updated to use SLOPE (Trend) instead of noisy Return.
         """
         
-        # 1. Summarize the Statistical Data
-        # We calculate the "Average Outcome" to give the LLM a hint
-        returns = [m['next_return'] for m in matched_data]
-        avg_return = sum(returns) / len(returns)
-        positive_outcomes = len([r for r in returns if r > 0])
-        
-        # Clean the data (remove embeddings to save tokens)
+        # ---------------------------------------------------------
+        # 1. PROCESS STATISTICAL DATA (Using Slope)
+        # ---------------------------------------------------------
+        slopes = []
         clean_data = []
+
         for m in matched_data:
+            # Prioritize Slope 3 (Trend), fallback to Slope 5, then 0
+            s = m.get('next_slope_3')
+            if s is None:
+                s = m.get('next_slope_5', 0.0)
+            
+            slopes.append(s)
+            
+            # Determine Trend Label for the JSON
+            trend_dir = "UP" if s > 0 else "DOWN"
+            
             clean_data.append({
                 "time": m['time'],
                 "similarity_score": round(m['similarity_score'], 4),
-                "next_return_pct": f"{m['next_return']*100:.4f}%",  # Convert to %
-                "outcome": "UP" if m['next_return'] > 0 else "DOWN"
+                "trend_slope": f"{s:.6f}",  # Show slope value
+                "trend_outcome": trend_dir, # Explicitly state the Trend
+                # Optional: Keep return just for reference, but label it clearly
+                "immediate_return": f"{m.get('next_return', 0.0)*100:.4f}%" 
             })
 
-        # 2. Build the System Prompt (The Persona)
+        # Calculate Consensus based on SLOPE
+        avg_slope = sum(slopes) / len(slopes) if slopes else 0.0
+        positive_trends = len([s for s in slopes if s > 0])
+        consensus_pct = (positive_trends / len(slopes)) * 100 if slopes else 0
+
+        # ---------------------------------------------------------
+        # 2. BUILD SYSTEM PROMPT (The Persona)
+        # ---------------------------------------------------------
         system_message = """
         You are an expert Quantitative Trader AI. Your job is to analyze current market patterns 
         by comparing them to historical precedents (RAG).
         
         You have two inputs:
         1. An Image showing the Current Market Pattern (Black Line) vs. Top 10 Historical Matches.
-            The green lines mean the historical data that will move up (plus return).
-            And the red lines mean the historical data that will move down (minus return).
-        2. A Data List showing what happened immediately after those historical matches.
+        - Green lines = Historical Uptrends (Positive Slope).
+        - Red lines = Historical Downtrends (Negative Slope).
+        - Dotted lines = Projected Future Trend.
+        2. A Data List showing the **Future Trend Slope** of those matches.
         
-        Data Context: Normalized Market VectorThe numerical sequence provided is a Z-Score Normalized Log-Return Vector representing the market's "shape" over the last 60 periods.
-        Calculation Logic:Log Returns: We calculate the relative price change using natural logarithms ($\ln(P_t) - \ln(P_{t-1})$).Z-Score 
-        Normalization: These returns are standardized using the mean and standard deviation of the specific window ($z = \frac{x - \mu}{\sigma}$).
-        How to Interpret:
-            Stationary: 
-                The data is scale-invariant. It does not matter if the price is $10 or $10,000.
-            Values:
-                0.0: Represents an "average" move for this specific window.
-                > +2.0: Represents a statistically significant upward outlier (strong momentum).
-                < -2.0: Represents a statistically significant downward outlier (strong crash).
+        Data Context: Normalized Market Vector
+        The numerical sequence provided is a Z-Score Normalized Log-Return Vector representing the market's "shape".
         
         Your Output must be a strict JSON object:
         {
@@ -486,30 +497,32 @@ class PatternAI(BaseAI):
         }
         
         Rules for Signal:
+        - Focus on the **TREND** (Slope), not immediate noise.
         - If Visuals are messy/divergent AND Stats are mixed -> HOLD.
         - If Visuals look tight/consistent AND Stats are >70% aligned -> LONG/SHORT.
-        - Also consider the appearance of lines they might be not tight but looks the same shape -> LONG/SHORT.
+        - If the "Shape" matches but the "Scale" (amplitude) is different, that is okay (Z-Score handles this).
         """
 
-        # 3. Build the User Message (The Evidence)
+        # ---------------------------------------------------------
+        # 3. BUILD USER MESSAGE (The Evidence)
+        # ---------------------------------------------------------
         user_content = f"""
         ### 1. Current Context
         - **Analysis Time:** {current_time}
-        - **Statistical Consensus:** {positive_outcomes}/{len(returns)} precedents went UP.
-        - **Average Return of Matches:** {avg_return*100:.4f}%
+        - **Trend Consensus:** {positive_trends}/{len(slopes)} historical matches trended UP ({consensus_pct:.1f}%).
+        - **Average Slope:** {avg_slope:.6f} (Positive = Bullish, Negative = Bearish)
 
-        ### 2. Historical Data (Top Matches)
+        ### 2. Historical Trend Data
         {json.dumps(clean_data, indent=2)}
 
         ### 3. Visual Analysis
         Please look at the attached chart. 
         - The BLACK line is the current price action.
         - The COLORED lines are the historical matches.
-        - The DOTTED lines to the right are the "Future" outcomes of those matches.
         
         **Task:**
-        Does the Black line follow a clear pattern that aligns with the historical outcomes?
-        Predict the next move.
+        Does the Black line follow a clear pattern that aligns with the historical **Trends**?
+        Predict the next move based on the **Slope Consensus**.
         """
 
         payload = [
@@ -526,80 +539,70 @@ class PatternAI(BaseAI):
         ]
         
         return payload
-    
     ##########################################################################
     
     def plot_patterns_to_base64(self, current_vec, rag_matches):
         """
-        Plots the Current Market (Black) vs Historical Matches (Red/Green).
+        Plots Current Market (Black) vs Historical Matches (Red/Green based on Slope).
         """
         plt.figure(figsize=(12, 6))
         
-        # ---------------------------------------------------------
         # 1. PROCESS CURRENT MARKET (Black Line)
-        # ---------------------------------------------------------
-        # Parse and reconstruct price shape
         curr_data = self.parse_vector(current_vec)
-        if not curr_data: return "Error: No current data"
+        if not curr_data: 
+            return "Error: No current data"
         
-        # Turn vector into a line shape
         curr_prices = self.vector_to_price_shape(curr_data)
-        
-        # Normalize to start at 0% (Standard Percentage Yield)
         curr_norm = (curr_prices / curr_prices[0]) - 1
-        
         x_current = np.arange(len(curr_norm))
+        
         plt.plot(x_current, curr_norm, color='black', linewidth=3, label='Current Market', zorder=10)
 
-        # ---------------------------------------------------------
-        # 2. PROCESS HISTORICAL MATCHES (Red/Green Lines)
-        # ---------------------------------------------------------
+        # 2. PROCESS HISTORICAL MATCHES
+        future_steps = 12 # How far to project the dotted line
+        
         for match in rag_matches:
-            # A. Parse the historical vector
+            # A. Parse History
             hist_vec = self.parse_vector(match.get('embedding'))
-            if not hist_vec: continue
+            if not hist_vec: 
+                continue
             
-            # B. Reconstruct its shape
             hist_prices = self.vector_to_price_shape(hist_vec)
             hist_norm = (hist_prices / hist_prices[0]) - 1
             
-            # C. Prepare "Future" Tail
-            # We simulate the future path using the scalar 'next_return'
-            future_return = match.get('next_return', 0.0)
+            # B. USE SLOPE INSTEAD OF RETURN
+            # We prioritize slope_3, fallback to slope_5, then return
+            slope = match.get('next_slope_3')
+            if slope is None: 
+                slope = match.get('next_slope_5', 0.0)
             
-            # Determine Color: Green if future is UP, Red if DOWN
-            color = '#2ecc71' if future_return > 0 else '#e74c3c' # Flat UI colors
+            # C. Determine Color (Based on Trend, not noise)
+            # Green if the smoothed trend is UP, Red if DOWN
+            color = '#2ecc71' if slope > 0 else '#e74c3c' 
             
-            # Plot the PAST (The Pattern)
-            plt.plot(x_current, hist_norm, color=color, alpha=0.3, linewidth=1.5)
+            # Plot the Match
+            plt.plot(x_current, hist_norm, color=color, alpha=0.25, linewidth=1.5)
             
-            # Plot the FUTURE (The Outcome Projection)
-            # We draw a dashed line from the last point to the target return
+            # D. Project Future Path using Slope (y = mx + b)
+            # last_val is 'b' (intercept), slope is 'm'
             last_val = hist_norm[-1]
-            target_val = last_val + future_return # Approximate visual target
             
-            # Create X-axis for future (e.g., next 12 steps)
-            future_steps = 12 
+            # Create future X points (e.g., t=60 to t=72)
             x_future = np.arange(len(hist_norm)-1, len(hist_norm) + future_steps)
-            y_future = np.linspace(last_val, target_val, len(x_future))
             
-            plt.plot(x_future, y_future, color=color, alpha=0.6, linestyle='--', linewidth=1.5)
+            # Calculate Y points: start at last_val, add slope * steps
+            # We use (i - start_index) to count steps from 0
+            y_future = [last_val + (slope * i) for i in range(len(x_future))]
+            
+            plt.plot(x_future, y_future, color=color, alpha=0.8, linestyle='--', linewidth=2.0)
 
-        # ---------------------------------------------------------
         # 3. FORMATTING
-        # ---------------------------------------------------------
-        # Vertical Line at "Right Now"
-        plt.axvline(x=len(curr_norm)-1, color='blue', linestyle='--', label='Right Now')
-        
-        plt.title(f"Pattern Analysis: Top {len(rag_matches)} Historical Matches", fontsize=14)
-        plt.xlabel("Time Steps (Candles)")
-        plt.ylabel("Reconstructed Price Action (Normalized)")
+        plt.axvline(x=len(curr_norm)-1, color='blue', linestyle=':', label='Now')
+        plt.title("Market Pattern Analysis (Colored by Trend Slope)", fontsize=14)
         plt.legend(loc='upper left')
         plt.grid(True, alpha=0.3)
         
-        # ---------------------------------------------------------
-        # 4. SAVE TO BASE64 (For LLM / Web UI)
-        # ---------------------------------------------------------
+        # 4. SAVE
         buf = io.BytesIO()
         plt.savefig(buf, format='png', bbox_inches='tight')
         buf.seek(0)
