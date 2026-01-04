@@ -24,7 +24,7 @@ symbol = 'ADAUSDT'
 vector_window = 60
 # days = 365*3
 # days = 1
-total_candles = 20
+total_candles = 10
 
 logger = get_utc_logger(__name__)
 
@@ -77,7 +77,7 @@ def main() -> None:
 ##############################################################################
 
 # Schedule it at specific minutes
-schedule.every().hour.at(":01").do(main)
+schedule.every().hour.at(":00").do(main)
 schedule.every().hour.at(":30").do(main)
 
 if __name__ == "__main__":
