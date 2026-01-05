@@ -317,4 +317,32 @@ class PostgreSQLDB(BaseDB):
     
     ##########################################################################
     
+    @_with_db_connection
+    def insert_logs(self, signal_data: dict) -> None:
+        insert_query = """
+            INSERT INTO logs.signal (
+                timestamp, 
+                model_type, 
+                asset, 
+                signal, 
+                average_distance, 
+                reason
+            )
+            VALUES (%s, %s, %s, %s, %s, %s);
+        """
+
+        # Execute the query safely using parameters to prevent SQL injection
+        self.cursor.execute(insert_query, (
+            signal_data['timestamp'],           
+            signal_data['model_type'],          
+            signal_data['asset'],               
+            signal_data['signal'],              
+            signal_data['average_distance'],    
+            signal_data['reason']               
+        ))
+        
+        self.connector.commit()
+    
+    ##########################################################################
+    
 ##############################################################################

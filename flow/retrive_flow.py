@@ -37,6 +37,8 @@ def retrive_data(
         top_k: int = 10,
         plot_file_name: os.PathLike = "market_pattern_plot.png",
 ) -> None:
+    prediction_logs = {}
+    prediction_logs['asset'] = symbol
     logger.info('Start flow to retrive data')
     logger.info('Checking position...')
     contract = market.check_position_opening(symbol)
@@ -51,6 +53,9 @@ def retrive_data(
         window=interval,
     )
     logger.info(f"Current timestamp is {current_timestamp} and trunc to {current_timestamp_tunc}")
+    
+    prediction_logs['timestamp'] = current_timestamp_tunc
+    prediction_logs['model_type'] = ai.bot_type
     
     # 2. Get data at the point
     top_k, target_vec = db.find_similar_patterns(
@@ -70,6 +75,7 @@ def retrive_data(
         )
         return
     
+    prediction_logs['average_distance'] = average_distance
     logger.info(f"Average distance is {config['DISTANCE_THRESHOLD']} continue pipeline")
     
     ai_content = ai.generate_signal(
@@ -105,7 +111,11 @@ def retrive_data(
             message = "Pattern image",
             file_path = plot_file_name,
         )
-    
+        
+        prediction_logs['signal'] = signal
+        prediction_logs['reason'] = reasoning
+        db.insert_logs(prediction_logs)
+        
     logger.info('End flow to retrive data')
     return None
 
