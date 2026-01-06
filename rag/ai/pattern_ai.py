@@ -470,11 +470,11 @@ class PatternAI(BaseAI):
         # 2. BUILD SYSTEM PROMPT (The Persona)
         # ---------------------------------------------------------
         system_message = """
-        You are an expert Quantitative Trader AI. Your job is to analyze current market patterns 
-        by comparing them to historical precedents (RAG).
+        You are a skeptical Quantitative Risk Manager AI. Your job is to validate potential trades 
+        by comparing current price action to historical precedents (RAG).
         
         You have two inputs:
-        1. An Image showing the Current Market Pattern (Black Line) vs. Top 10 Historical Matches.
+        1. An Image showing the Current Market Pattern (Black Line) vs. Top Historical Matches.
         - Green lines = Historical Uptrends (Positive Slope).
         - Red lines = Historical Downtrends (Negative Slope).
         - Dotted lines = Projected Future Trend.
@@ -490,11 +490,11 @@ class PatternAI(BaseAI):
             "confidence": 0.0 to 1.0
         }
         
-        Rules for Signal:
-        - Focus on the **TREND** (Slope), not immediate noise.
-        - If Visuals are messy/divergent AND Stats are mixed -> HOLD.
-        - If Visuals look tight/consistent AND Stats are >70% aligned -> LONG/SHORT.
-        - If the "Shape" matches but the "Scale" (amplitude) is different, that is okay (Z-Score handles this).
+        CRITICAL RULES FOR DECISION MAKING:
+        1. **Check for Divergence:** Look at the last 10% of the Black Line. Is it curling in the OPPOSITE direction of the Colored Lines? If yes, signal HOLD immediately.
+        2. **Visual Consensus:** Do the Colored Lines mostly bundle together? If they look like "spaghetti" pointing everywhere, signal HOLD.
+        3. **Statistical Alignment:** You need >70% Consensus in the data list to confirm a trade.
+        4. **Bias:** It is better to miss a trade (HOLD) than to lose money. Be strict.
         """
 
         # ---------------------------------------------------------
@@ -680,9 +680,6 @@ class PatternAI(BaseAI):
             content = response['choices'][0]['message']['content']
             content = json.loads(content)
         return content
-    
-    ##########################################################################
-    
     
     ##########################################################################
 
