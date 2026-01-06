@@ -403,34 +403,28 @@ class PatternAI(BaseAI):
         }
         
         # D. Send POST Request
-        try:
-            self.logger.info(f"Sending payload to LLM: {self.model}")
-            response = requests.post(
-                url="https://openrouter.ai/api/v1/chat/completions",
-                headers=headers,
-                data=json.dumps(payload)
-            )
-            
-            # Check for errors
-            response.raise_for_status()
-            
-            # E. Parse Response
-            result = response.json()
-            content = self.extract_content(response=result)
-            
-            self.logger.info(f"LLM Signal: {content['signal']}, Confidence: {content['confidence']}")
-            self.logger.info(f"LLM Reasoning: {content['reasoning']}")
-            
-            # Filter LLM noise using confidence score
-            if content["confidence"] < config['LLM_CONFIDENCE_PERCENTAGE_THRESHOLD']:
-                self.logger.warning("Low confidence in signal. Defaulting to HOLD.")
-                return 0
-            return content
-
-        except Exception as e:
-            self.logger.info(f"Error calling OpenRouter: {e}")
-            traceback.print_exc()
-        return None
+        self.logger.info(f"Sending payload to LLM: {self.model}")
+        response = requests.post(
+            url="https://openrouter.ai/api/v1/chat/completions",
+            headers=headers,
+            data=json.dumps(payload)
+        )
+        
+        # Check for errors
+        response.raise_for_status()
+        
+        # E. Parse Response
+        result = response.json()
+        content = self.extract_content(response=result)
+        
+        self.logger.info(f"LLM Signal: {content['signal']}, Confidence: {content['confidence']}")
+        self.logger.info(f"LLM Reasoning: {content['reasoning']}")
+        
+        # Filter LLM noise using confidence score
+        if content["confidence"] < config['LLM_CONFIDENCE_PERCENTAGE_THRESHOLD']:
+            self.logger.warning("Low confidence in signal. Defaulting to HOLD.")
+            return 0
+        return content
     
     ##########################################################################
     
@@ -673,13 +667,16 @@ class PatternAI(BaseAI):
         if self.model in [
             "google/gemini-2.5-flash", 
             "openai/gpt-4o",
+            "anthropic/claude-sonnet-4.5",
         ]:
             # Structure response
             content = response['choices'][0]['message']['content']
             content = re.sub(r"```json\n|\n```", "", content).strip()
             content = json.loads(content)
         
-        elif self.model in ["anthropic/claude-3.5-sonnet"]:
+        elif self.model in [
+            "anthropic/claude-3.5-sonnet", 
+        ]:
             content = response['choices'][0]['message']['content']
             content = json.loads(content)
         return content
