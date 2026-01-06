@@ -15,6 +15,8 @@ import traceback
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.patches as patches
+import matplotlib.dates as mdates
 from numpy.lib.stride_tricks import sliding_window_view
 
 from.__base_ai import BaseAI
@@ -369,6 +371,8 @@ class PatternAI(BaseAI):
             matched_data: object,
             current_vector: object,
             plot_file_name: os.PathLike = None,
+            plot_file_name_price_action: os.PathLike = None,
+            hlov_data: pd.DataFrame=None,
     ) -> pd.DataFrame:
         self.logger.info("Generating signal using LLM...")
         
@@ -377,16 +381,28 @@ class PatternAI(BaseAI):
             rag_matches=matched_data
         )
         
+        if hlov_data is not None:
+            image_price_action_b64 = self.plot_binance_style(
+                df=hlov_data,
+                show_plot=False,
+            )
+            
         if plot_file_name is not None:
             import base64
             image_data = base64.b64decode(image_b64)
             with open(plot_file_name, "wb") as file:
                 file.write(image_data)
-        
+        if plot_file_name is not None:
+            import base64
+            image_price_action = base64.b64decode(image_price_action_b64)
+            with open(plot_file_name_price_action, "wb") as file:
+                file.write(image_price_action)
+                
         message = self.generate_trading_prompt(
             current_time=current_time,
             matched_data=matched_data,
-            image_b64=image_b64
+            image_b64=image_b64,
+            image_price_action_b64 = image_price_action_b64,
         )
 
         # B. Define Headers
@@ -418,7 +434,7 @@ class PatternAI(BaseAI):
         content = self.extract_content(response=result)
         
         self.logger.info(f"LLM Signal: {content['signal']}, Confidence: {content['confidence']}")
-        self.logger.info(f"LLM Reasoning: {content['reasoning']}")
+        self.logger.info(f"LLM Reasoning: {content['synthesis']}")
         
         # Filter LLM noise using confidence score
         if content["confidence"] < config['LLM_CONFIDENCE_PERCENTAGE_THRESHOLD']:
@@ -429,10 +445,11 @@ class PatternAI(BaseAI):
     ##########################################################################
     
     @staticmethod
-    def generate_trading_prompt(current_time, matched_data, image_b64):
+    def generate_trading_prompt(current_time, matched_data, image_b64, image_price_action_b64):
         """
-        Constructs a prompt for GPT-4o/Claude combining Visual + Statistical Trend Data.
-        Updated to use SLOPE (Trend) instead of noisy Return.
+        Constructs a Dual-View prompt for Claude 3.5 Sonnet combining:
+        1. Macro RAG Pattern (Line Chart) - For Probability & History.
+        2. Micro Price Action (Candlesticks) - For Timing & Divergence.
         """
         
         # ---------------------------------------------------------
@@ -457,7 +474,6 @@ class PatternAI(BaseAI):
                 "similarity_score": round(m['similarity_score'], 4),
                 "trend_slope": f"{s:.6f}",  # Show slope value
                 "trend_outcome": trend_dir, # Explicitly state the Trend
-                # Optional: Keep return just for reference, but label it clearly
                 "immediate_return": f"{m.get('next_return', 0.0)*100:.4f}%" 
             })
 
@@ -467,72 +483,86 @@ class PatternAI(BaseAI):
         consensus_pct = (positive_trends / len(slopes)) * 100 if slopes else 0
 
         # ---------------------------------------------------------
-        # 2. BUILD SYSTEM PROMPT (The Persona)
+        # 2. BUILD SYSTEM PROMPT (The "Skeptical Risk Manager")
         # ---------------------------------------------------------
         system_message = """
-        You are a skeptical Quantitative Risk Manager AI. Your job is to validate potential trades 
-        by comparing current price action to historical precedents (RAG).
+        You are a skeptical Quantitative Risk Manager AI. 
         
-        You have two inputs:
-        1. An Image showing the Current Market Pattern (Black Line) vs. Top Historical Matches.
-        - Green lines = Historical Uptrends (Positive Slope).
-        - Red lines = Historical Downtrends (Negative Slope).
-        - Dotted lines = Projected Future Trend.
-        2. A Data List showing the **Future Trend Slope** of those matches.
-        
-        Data Context: Normalized Market Vector
-        The numerical sequence provided is a Z-Score Normalized Log-Return Vector representing the market's "shape".
-        
-        Your Output must be a strict JSON object:
+        INPUTS:
+        1. **Chart A (Macro):** RAG Pattern Analysis (Line Chart).
+            Data Context: Normalized Market Vector. The numerical sequence provided is a Z-Score Normalized Log-Return Vector representing the market's "shape".
+        2. **Chart B (Micro):** Live Price Action (Candlesticks).
+        3. **Historical Match Details** The numeric data from Chart A
+
+        OUTPUT FORMAT:
+        You must output ONLY a valid JSON object. 
+        - NO "Here is my analysis" preamble.
+        - NO "Risk Manager Verdict" postscript.
+        - NO Markdown formatting (do not use ```json wrappers).
+        - Just the raw JSON string.
+
+        JSON STRUCTURE:
         {
-            "reasoning": "Brief analysis of the visual pattern and statistical consensus...",
+            "chart_a_analysis": "Briefly: Does Black Line match Colored Lines?",
+            "chart_b_analysis": "Briefly: Bearish/bullish candles? Rejection wicks?",
+            "synthesis": "Synthesis of both charts. If conflicting, explain why.",
             "signal": "LONG" | "SHORT" | "HOLD",
             "confidence": 0.0 to 1.0
         }
         
-        CRITICAL RULES FOR DECISION MAKING:
-        1. **Check for Divergence:** Look at the last 10% of the Black Line. Is it curling in the OPPOSITE direction of the Colored Lines? If yes, signal HOLD immediately.
-        2. **Visual Consensus:** Do the Colored Lines mostly bundle together? If they look like "spaghetti" pointing everywhere, signal HOLD.
-        3. **Statistical Alignment:** You need >70% Consensus in the data list to confirm a trade.
-        4. **Bias:** It is better to miss a trade (HOLD) than to lose money. Be strict.
+        CRITICAL DECISION RULES:
+        1. **Divergence:** If Chart A says "UP" but Chart B shows "Shooting Star" or "Bearish Engulfing" -> **HOLD**.
+        2. **Spaghetti:** If Chart A's lines are mixed -> **HOLD**.
+        3. **Consensus:** Need >70% Historical Consensus AND clean Candles to trade.
         """
 
         # ---------------------------------------------------------
         # 3. BUILD USER MESSAGE (The Evidence)
         # ---------------------------------------------------------
         user_content = f"""
-        ### 1. Current Context
+        ### Market Context
         - **Analysis Time:** {current_time}
-        - **Trend Consensus:** {positive_trends}/{len(slopes)} historical matches trended UP ({consensus_pct:.1f}%).
-        - **Average Slope:** {avg_slope:.6f} (Positive = Bullish, Negative = Bearish)
+        - **Historical Trend Consensus:** {positive_trends}/{len(slopes)} matches trended UP ({consensus_pct:.1f}%).
+        - **Average Future Slope:** {avg_slope:.6f}
 
-        ### 2. Historical Trend Data
+        ### Historical Match Details (Numeric data from Chart A)
         {json.dumps(clean_data, indent=2)}
 
-        ### 3. Visual Analysis
-        Please look at the attached chart. 
-        - The BLACK line is the current price action.
-        - The COLORED lines are the historical matches.
+        ### Visual Analysis Task
+        Please analyze the two attached images (Chart A: Patterns, Chart B: Candles) according to the System Instructions.
         
-        **Task:**
-        Does the Black line follow a clear pattern that aligns with the historical **Trends**?
-        Predict the next move based on the **Slope Consensus**.
+        **Verify:** Does the Price Action in Chart B confirm the Historical Thesis in Chart A? 
+        If Chart B looks weak/choppy while Chart A is bullish, act conservatively (HOLD).
+        
+        ** If chart A is blur, use Historical Match Details to syntisize the data in Chart A
         """
 
+        # ---------------------------------------------------------
+        # 4. CONSTRUCT MULTIMODAL PAYLOAD
+        # ---------------------------------------------------------
         payload = [
-            {"role": "system", "content": system_message},
-            {"role": "user", "content": [
-                {"type": "text", "text": user_content},
-                {
-                    "type": "image_url",
-                    "image_url": {
-                        "url": f"data:image/png;base64,{image_b64}"
+                {"role": "system", "content": system_message},
+                {"role": "user", "content": [
+                    {"type": "text", "text": user_content},
+                    # IMAGE 1: RAG PATTERNS (Macro)
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:image/png;base64,{image_b64}"
+                        }
+                    },
+                    # IMAGE 2: PRICE ACTION (Micro)
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:image/png;base64,{image_price_action_b64}"
+                        }
                     }
-                }
-            ]}
-        ]
+                ]}
+            ]
         
         return payload
+    
     ##########################################################################
     
     def plot_patterns_to_base64(self, current_vec, rag_matches):
@@ -604,6 +634,132 @@ class PatternAI(BaseAI):
         plt.close()
         buf.close()
         return image_base64
+    
+    ##########################################################################
+    
+    @staticmethod
+    def plot_binance_style(df, show_plot=False):
+        """
+        Manually draws a Binance-style chart using standard Matplotlib primitives.
+        No mplfinance required.
+        """
+        # 1. PREPARE DATA
+        # Ensure standard column names
+        df = df.copy()
+        df['timestamp'] = pd.to_datetime(df['timestamp'])
+
+        # Convert numeric columns to float, handling any potential errors
+        numeric_cols = ['open', 'high', 'low', 'close', 'volume']
+        for col in numeric_cols:
+            if col in df.columns:
+                df[col] = df[col].astype(float)
+
+        df.set_index('timestamp', inplace=True)
+        
+        # Slice last 60 candles for clarity
+        df = df.tail(60)
+        
+        # Reset index to simple integers 0..N for easy x-axis alignment
+        # We will map dates back to these integers later
+        df_reset = df.reset_index()
+        
+        # 2. SETUP FIGURE (Dark Theme)
+        # Color Palette (Binance Hex Codes)
+        COLOR_BG = '#131722'
+        COLOR_UP = '#2ebd85'   # Green
+        COLOR_DOWN = '#f6465d' # Red
+        COLOR_MA7 = '#f0b90b'  # Yellow
+        COLOR_MA25 = '#9945ff' # Purple
+        COLOR_MA99 = '#e56df6' # Pink
+        COLOR_GRID = '#363c4e'
+        
+        # Create Subplots (Price on top, Volume on bottom)
+        fig, (ax1, ax2) = plt.subplots(
+            2, 1, 
+            figsize=(12, 8), 
+            gridspec_kw={'height_ratios': [3, 1]}, 
+            sharex=True
+        )
+        
+        # Set Backgrounds
+        fig.patch.set_facecolor(COLOR_BG)
+        ax1.set_facecolor(COLOR_BG)
+        ax2.set_facecolor(COLOR_BG)
+
+        # 3. DRAW CANDLES (Manual Rectangles & Lines)
+        width = 0.6
+        width2 = 0.05 # Wick width
+
+        up = df_reset[df_reset.close >= df_reset.open]
+        down = df_reset[df_reset.close < df_reset.open]
+
+        # Draw UP Candles (Green)
+        # Wicks (High to Low)
+        ax1.bar(up.index, up.high - up.low, width2, bottom=up.low, color=COLOR_UP, zorder=2)
+        # Bodies (Open to Close)
+        ax1.bar(up.index, up.close - up.open, width, bottom=up.open, color=COLOR_UP, zorder=2)
+
+        # Draw DOWN Candles (Red)
+        # Wicks
+        ax1.bar(down.index, down.high - down.low, width2, bottom=down.low, color=COLOR_DOWN, zorder=2)
+        # Bodies (Open to Close)
+        ax1.bar(down.index, down.open - down.close, width, bottom=down.close, color=COLOR_DOWN, zorder=2)
+
+        # 4. DRAW MOVING AVERAGES
+        # Calculate MAs
+        ma7 = df['close'].rolling(7).mean().reset_index(drop=True)
+        ma25 = df['close'].rolling(25).mean().reset_index(drop=True)
+        ma99 = df['close'].rolling(99).mean().reset_index(drop=True)
+
+        ax1.plot(ma7, color=COLOR_MA7, linewidth=1.5, label='MA(7)', zorder=3)
+        ax1.plot(ma25, color=COLOR_MA25, linewidth=1.5, label='MA(25)', zorder=3)
+        ax1.plot(ma99, color=COLOR_MA99, linewidth=1.5, label='MA(99)', zorder=3)
+
+        # 5. DRAW VOLUME (Bottom Chart)
+        # Match volume color to candle color
+        colors_vol = [COLOR_UP if c >= o else COLOR_DOWN for c, o in zip(df.close, df.open)]
+        ax2.bar(df_reset.index, df_reset.volume, color=colors_vol, width=width)
+
+        # 6. FORMATTING
+        # Grid
+        ax1.grid(color=COLOR_GRID, linestyle=':', linewidth=0.5, alpha=0.5)
+        ax2.grid(color=COLOR_GRID, linestyle=':', linewidth=0.5, alpha=0.5)
+        
+        # Spines (Borders)
+        for ax in [ax1, ax2]:
+            for spine in ax.spines.values():
+                spine.set_edgecolor(COLOR_GRID)
+            ax.tick_params(axis='x', colors='white')
+            ax.tick_params(axis='y', colors='white')
+
+        # X-Axis Date Labels (Formatting indices back to dates)
+        # Show every 10th label to avoid clutter
+        ticks = np.arange(0, len(df), 10)
+        tick_labels = [df.index[i].strftime('%H:%M') for i in ticks]
+        ax2.set_xticks(ticks)
+        ax2.set_xticklabels(tick_labels)
+
+        ax1.set_ylabel("Price", color='white')
+        ax2.set_ylabel("Volume", color='white')
+        ax1.set_title("Price Action (Binance Style which is trading market)", color='white', fontweight='bold')
+        ax1.legend(loc='upper left', facecolor=COLOR_BG, edgecolor=COLOR_GRID, labelcolor='white')
+
+        plt.tight_layout()
+
+        # 7. OUTPUT
+        # A: Show Plot (Local Debug)
+        if show_plot:
+            plt.show()
+
+        # B: Save to Base64 (For Bot)
+        buf = io.BytesIO()
+        plt.savefig(buf, format='png', bbox_inches='tight', facecolor=fig.get_facecolor(), dpi=100)
+        buf.seek(0)
+        image_base64 = base64.b64encode(buf.read()).decode('utf-8')
+        buf.close()
+        plt.close(fig) # Close to free memory
+        
+        return image_base64  
     
     ##########################################################################
     

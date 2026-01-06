@@ -2,7 +2,7 @@
 # Imports #
 ##############################################################################
 
-from datetime import datetime
+from datetime import datetime, timezone
 import os
 from zoneinfo import ZoneInfo
 from logging import Logger
@@ -36,6 +36,8 @@ def retrive_data(
         table_name: str = "market_pattern",
         top_k: int = 10,
         plot_file_name: os.PathLike = "market_pattern_plot.png",
+        plot_file_name_price_action: os.PathLike = "price_action_plot.png",
+        price_action_limit: int = 200
 ) -> None:
     prediction_logs = {}
     prediction_logs['asset'] = symbol
@@ -78,12 +80,30 @@ def retrive_data(
     prediction_logs['average_distance'] = average_distance
     logger.info(f"Average distance is {config['DISTANCE_THRESHOLD']} continue pipeline")
     
+    # Use in price action
+    current_time = datetime.now(tz=timezone.utc)
+    timestamp_step = current_time.replace(second=0)
+
+    if interval == "15m":
+        # Truncate to nearest 15 minutes
+        minute = (timestamp_step.minute // 15) * 15
+        timestamp_truncated = timestamp_step.replace(
+            minute=minute, second=0, microsecond=0
+        )
+    hlov_data = market.get_data(
+        symbol=symbol,
+        target_date=timestamp_truncated,
+        interval=interval,
+        total_rows=price_action_limit,
+    )
+    
     ai_content = ai.generate_signal(
         current_time=current_timestamp,
         matched_data=top_k,
         current_vector=target_vec,
-        plot_file_name=plot_file_name
-        
+        plot_file_name=plot_file_name,
+        plot_file_name_price_action=plot_file_name_price_action,
+        hlov_data=hlov_data
     )
     
     if ai_content == 0:
@@ -98,7 +118,13 @@ def retrive_data(
         )
         
         confidence = ai_content['confidence']
-        reasoning = ai_content['reasoning']
+        reasoning = f"""Reasons
+        Chart A: {ai_content['chart_a_analysis']}
+        
+        Chart B: {ai_content['chart_b_analysis']}
+        
+        Synthesis: {ai_content['chart_b_analysis']}
+        """
         
         message_to_sent = get_message_to_notify_open_order(
             bot_type=ai.bot_type,
@@ -111,6 +137,11 @@ def retrive_data(
             message = "Pattern image",
             file_path = plot_file_name,
         )
+        notifier.sent_message_image(
+            message = "Price action image",
+            file_path = plot_file_name_price_action,
+        )
+        
         
         prediction_logs['signal'] = signal
         prediction_logs['reason'] = reasoning
