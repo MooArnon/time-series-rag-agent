@@ -77,8 +77,8 @@ def main() -> None:
 ##############################################################################
 
 # Schedule it at specific minutes
-schedule.every().hour.at(":00").do(main)
-schedule.every().hour.at(":30").do(main)
+schedule.every().hour.at(":01").do(main)
+schedule.every().hour.at(":31").do(main)
 
 if __name__ == "__main__":
     logger.info("Running ingest_binance_adausdt_pattern_15_min.py")
