@@ -431,7 +431,13 @@ class PatternAI(BaseAI):
         
         # E. Parse Response
         result = response.json()
-        content = self.extract_content(response=result)
+        
+        try:
+            content = self.extract_content(response=result)
+        except SystemError:
+            self.logger.info("Error from JSON extraction")
+            self.logger.info(f"With this JSON structure {result}")
+            raise SystemError
         
         self.logger.info(f"LLM Signal: {content['signal']}, Confidence: {content['confidence']}")
         self.logger.info(f"LLM Reasoning: {content['synthesis']}")
@@ -539,9 +545,6 @@ class PatternAI(BaseAI):
         **Instruction:** If Chart A looks good (>60% match) and Chart B is not a disaster, **SIGNAL THE TRADE**. 
         Do not signal HOLD unless you see a clear danger sign.
         """
-        
-        print(system_message)
-        print(user_content)
 
         # ---------------------------------------------------------
         # 4. CONSTRUCT MULTIMODAL PAYLOAD
