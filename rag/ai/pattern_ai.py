@@ -519,6 +519,12 @@ class PatternAI(BaseAI):
         3. **Consensus Threshold:** You only need **60%** statistical alignment to trigger a trade.
         4. **Bias:** Do not be paralyzed by perfection. If the odds are in our favor (>60%), take the trade.
         
+        The "Do Not Chase" Rule (Volatility Filter):
+        Look at the last 1-3 candles in Chart B.
+        - If you see a **Massive Vertical Move** (e.g., a giant red candle that is 3x bigger than the previous ones), **SIGNAL HOLD**.
+        - Logic: The move has likely already happened. Entering now is "chasing" and risky.
+        - We want to enter *before* the explosion or during a *pullback*, not *during* the crash.
+        
         ENVIRONMENT :
         - The leverage will be set at ${leverage}
         - The stoploss will be set at every trade, it's 2 percent from the market price... 
