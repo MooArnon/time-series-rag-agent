@@ -486,7 +486,8 @@ class PatternAI(BaseAI):
         # 2. BUILD SYSTEM PROMPT (The "Skeptical Risk Manager")
         # ---------------------------------------------------------
         system_message = """
-        You are a skeptical Quantitative Risk Manager AI. 
+        You are an **Objective Quantitative Analyst AI**. 
+        Your goal is to identify profitable trading opportunities by weighing statistical probability against price action.
         
         INPUTS:
         1. **Chart A (Macro):** RAG Pattern Analysis (Line Chart).
@@ -495,26 +496,28 @@ class PatternAI(BaseAI):
         3. **Historical Match Details** The numeric data from Chart A
 
         OUTPUT FORMAT:
-        You must output ONLY a valid JSON object. 
-        - NO "Here is my analysis" preamble.
-        - NO "Risk Manager Verdict" postscript.
-        - NO Markdown formatting (do not use ```json wrappers).
-        - Just the raw JSON string.
-
-        JSON STRUCTURE:
+        Output ONLY a valid JSON string (no markdown, no preamble).
         {
-            "chart_a_analysis": "Briefly: Does Black Line match Colored Lines?",
-            "chart_b_analysis": "Briefly: Bearish/bullish candles? Rejection wicks?",
-            "synthesis": "Synthesis of both charts. If conflicting, explain why.",
+            "chart_a_analysis": "Does the Black Line generally follow the Colored Lines?",
+            "chart_b_analysis": "Is there a strong reversal pattern? Or just standard noise?",
+            "synthesis": "Weigh the evidence. Pattern vs. Price Action.",
             "signal": "LONG" | "SHORT" | "HOLD",
             "confidence": 0.0 to 1.0
         }
         
-        CRITICAL DECISION RULES:
-        1. **Divergence:** If Chart A says "UP" but Chart B shows "Shooting Star" or "Bearish Engulfing" -> **HOLD**.
-        2. **Spaghetti:** If Chart A's lines are mixed -> **HOLD**.
-        3. **Consensus:** Need >70% Historical Consensus AND clean Candles to trade.
+        DECISION LOGIC (The "Opportunity" Framework):
+        1. **Primary Driver (Chart A):** If the RAG Patterns show a clear direction (Consensus > 60%), this is your primary signal. Trust the history.
+        2. **The "Veto" Check (Chart B):** Only signal HOLD if Chart B shows a **MAJOR** contradiction (e.g., a massive rejection candle or volume spike against the trend).
+           - Do NOT hold just because of small wicks or low volatility.
+           - If Chart B is "messy" but not explicitly contradictory, **TRUST CHART A**.
+        3. **Consensus Threshold:** You only need **60%** statistical alignment to trigger a trade.
+        4. **Bias:** Do not be paralyzed by perfection. If the odds are in our favor (>60%), take the trade.
+        
+        ENVIRONMENT :
+        - The leverage will be set at ${leverage}
+        - The stoploss will be set at every trade, it's 2 percent from the market price... 
         """
+        system_message = system_message.replace("${leverage}", str(config['LEVERAGE']))
 
         # ---------------------------------------------------------
         # 3. BUILD USER MESSAGE (The Evidence)
@@ -528,14 +531,17 @@ class PatternAI(BaseAI):
         ### Historical Match Details (Numeric data from Chart A)
         {json.dumps(clean_data, indent=2)}
 
-        ### Visual Analysis Task
-        Please analyze the two attached images (Chart A: Patterns, Chart B: Candles) according to the System Instructions.
+       ### Visual Task
+        Analyze the attached charts.
+        - **Chart A** gives you the PROBABILITY.
+        - **Chart B** gives you the TIMING.
         
-        **Verify:** Does the Price Action in Chart B confirm the Historical Thesis in Chart A? 
-        If Chart B looks weak/choppy while Chart A is bullish, act conservatively (HOLD).
-        
-        ** If chart A is blur, use Historical Match Details to syntisize the data in Chart A
+        **Instruction:** If Chart A looks good (>60% match) and Chart B is not a disaster, **SIGNAL THE TRADE**. 
+        Do not signal HOLD unless you see a clear danger sign.
         """
+        
+        print(system_message)
+        print(user_content)
 
         # ---------------------------------------------------------
         # 4. CONSTRUCT MULTIMODAL PAYLOAD
