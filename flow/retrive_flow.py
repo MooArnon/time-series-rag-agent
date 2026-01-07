@@ -60,6 +60,7 @@ def retrive_data(
     prediction_logs['model_type'] = ai.bot_type
     
     # 2. Get data at the point
+    logger.info("Finding similar patterns")
     top_k, target_vec = db.find_similar_patterns(
         symbol=symbol,
         target_time=current_timestamp_tunc,

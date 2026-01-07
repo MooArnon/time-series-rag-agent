@@ -24,7 +24,7 @@ symbol = 'ADAUSDT'
 vector_window = 60
 # days = 365*3
 # days = 1
-total_candles = 20
+total_candles = 10
 
 logger = get_utc_logger(__name__)
 

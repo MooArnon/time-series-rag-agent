@@ -55,7 +55,7 @@ discord_notify = DiscordNotify(webhook_url=os.environ["DISCORD_NOTIFY_WEBHOOK_UR
 
 def main() -> None:
     try:
-        time.sleep(10)
+        time.sleep(5)
         run_backfill_bulk_ingest_to_postgresql(
             logger=logger,
             ai=ai,
@@ -78,9 +78,11 @@ def main() -> None:
 
 # Schedule it at specific minutes
 schedule.every().hour.at(":00").do(main)
-schedule.every().hour.at(":30").do(main)
+schedule.every().hour.at(":21").do(main)
 
 if __name__ == "__main__":
+    logger.info("Running ingest_binance_adausdt_pattern_15_min.py")
+    logger.info("Wating for schedule")
     while True:
         schedule.run_pending()
         time.sleep(1)

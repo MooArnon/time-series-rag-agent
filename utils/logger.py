@@ -18,7 +18,6 @@ def get_utc_logger(name: str, level=logging.INFO) -> logging.Logger:
     logging.Logger
         The configured logger instance.
     """
-    print(f"Creating UTC logger with level: {level}")
     # Create a new logger instance
     logger = logging.getLogger(name)
     logger.setLevel(level)

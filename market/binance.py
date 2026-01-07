@@ -77,8 +77,6 @@ class BinanceMarket(BaseMarket):
         )
         
         self.base_url_usdm_market = "https://fapi.binance.com/fapi/v1/klines"
-        
-        self.logger.info("Press Ctrl+C to stop the bot.")
 
     ##########################################################################
     
@@ -140,7 +138,7 @@ class BinanceMarket(BaseMarket):
         
         rows_fetched = 0
         
-        print(f"Fetching {total_rows} rows for {symbol}...")
+        self.logger.info(f"Fetching {total_rows} rows for {symbol}...")
         
         while rows_fetched < total_rows:
             # Calculate how many rows we still need for this batch
@@ -151,7 +149,7 @@ class BinanceMarket(BaseMarket):
             batch_data = self.fetch_batch(symbol, interval, current_end_time, limit)
             
             if not batch_data:
-                print("No more data received or error occurred.")
+                self.logger.info("No more data received or error occurred.")
                 break
                 
             # Binance returns data [oldest -> newest]. 
@@ -159,7 +157,7 @@ class BinanceMarket(BaseMarket):
             all_kline_data = batch_data + all_kline_data
             
             rows_fetched += len(batch_data)
-            print(f"Fetched {len(batch_data)} rows. Total: {rows_fetched}/{total_rows}")
+            self.logger.info(f"Fetched {len(batch_data)} rows. Total: {rows_fetched}/{total_rows}")
             
             # IMPORTANT: Set the endTime for the next loop to be just BEFORE
             # the oldest candle we just fetched.
@@ -1182,8 +1180,8 @@ class BinanceMarket(BaseMarket):
             response.raise_for_status() # Raise error for bad status codes
             return response.json()
         except requests.exceptions.HTTPError as err:
-            print(f"HTTP Error: {err}")
-            print(f"Body: {response.text}")
+            self.logger.error(f"HTTP Error: {err}")
+            self.logger.error(f"Body: {response.text}")
             return None
     
     ##########################################################################
