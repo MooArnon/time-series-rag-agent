@@ -4,31 +4,44 @@ import (
 	"time"
 )
 
-func PatternAI struct {
-	Symbol string
-	Interval string
-	Model string
+// Fixed: Used 'type' keyword for struct definition
+type PatternAI struct {
+	Symbol       string
+	Interval     string
+	Model        string
 	VectorWindow int
 }
 
+// Fixed: Added commas between parameters
 func NewPatternAI(
-	Symbol: string
-	Interval: string
-	Model: string
-	VectorWindow: int
+	Symbol string,
+	Interval string,
+	Model string,
+	VectorWindow int,
 ) *PatternAI {
 	return &PatternAI{
-		Symbol: Symbol
-		Interval: Interval
-		Model: Model
-		VectorWindow: VectorWindow
+		Symbol:       Symbol,
+		Interval:     Interval,
+		Model:        Model,
+		VectorWindow: VectorWindow, // Fixed: Added commas
 	}
 }
 
-func InputData struct {
-	Time int64
+// Fixed: Used 'type' keyword
+type InputData struct {
+	Time  int64
 	Close float64
 }
+
+// Fixed: Added struct definition for LabelUpdate (inferred from usage)
+type LabelUpdate struct {
+	TargetTime int64
+	Column     string
+	Value      float64
+}
+
+// Fixed: Added alias for FeatureResult to match usage in BulkResult
+type FeatureResult = PatternFeature
 
 func (p *PatternAI) CalculateFeatures(history []InputData) *PatternFeature {
 	reqLen := p.VectorWindow + 1
@@ -44,7 +57,8 @@ func (p *PatternAI) CalculateFeatures(history []InputData) *PatternFeature {
 	// Extract close price
 	closes := make([]float64, len(window))
 	for i, d := range window {
-		closes[i] := d.Close
+		// Fixed: Use '=' for assignment to existing slice index, not ':='
+		closes[i] = d.Close
 	}
 
 	// Log return
@@ -53,14 +67,14 @@ func (p *PatternAI) CalculateFeatures(history []InputData) *PatternFeature {
 	// Normalize (Embedding)
 	embedding := CalculateZScore(LogReturn)
 
-	lastCandle := window[len(window) - 1]
+	lastCandle := window[len(window)-1]
 
 	return &PatternFeature{
-		Time : lastCandle.Time
-		Symbol: p.Symbol
-		Interval: p.Interval
-		Embedding: embedding
-		ClosePrice: lastCandle.Close
+		Time:       time.Unix(lastCandle.Time, 0), // Fixed: Convert int64 to time.Time
+		Symbol:     p.Symbol,
+		Interval:   p.Interval,
+		Embedding:  embedding,
+		ClosePrice: lastCandle.Close, // Fixed: Added commas
 	}
 }
 
@@ -77,10 +91,10 @@ func (p *PatternAI) CalculateLabels(history []InputData) []LabelUpdate {
 	// Logic: We look at the 2nd to last candle (T-1) and calculate return using Last (T)
 	prevIdx := n - 2
 	currIdx := n - 1
-	
+
 	prevClose := history[prevIdx].Close
 	currClose := history[currIdx].Close
-	
+
 	if prevClose != 0 {
 		ret := (currClose - prevClose) / prevClose
 		updates = append(updates, LabelUpdate{
@@ -101,7 +115,8 @@ func (p *PatternAI) CalculateLabels(history []InputData) []LabelUpdate {
 			history[n-2].Close,
 			history[n-1].Close,
 		}
-		slope := GetSlope(futurePrices)
+		// Fixed: Renamed GetSlope -> CalculateSlope to match previous file
+		slope := CalculateSlope(futurePrices)
 		updates = append(updates, LabelUpdate{
 			TargetTime: history[targetIdx3].Time,
 			Column:     "next_slope_3",
@@ -117,8 +132,8 @@ func (p *PatternAI) CalculateLabels(history []InputData) []LabelUpdate {
 		for i := targetIdx5 + 1; i < n; i++ {
 			futurePrices = append(futurePrices, history[i].Close)
 		}
-		
-		slope := GetSlope(futurePrices)
+
+		slope := CalculateSlope(futurePrices)
 		updates = append(updates, LabelUpdate{
 			TargetTime: history[targetIdx5].Time,
 			Column:     "next_slope_5",
@@ -136,35 +151,35 @@ type BulkResult struct {
 
 func (p *PatternAI) CalculateBulkData(fullHistory []InputData) []BulkResult {
 	results := []BulkResult{}
-	
+
 	// Loop through history
 	// Start loop where we have enough data for a window
 	// If Window=60, we need index 60 (61st item) to look back 60 returns
-	startIndex := p.VectorWindow 
+	startIndex := p.VectorWindow
 
 	for i := startIndex; i < len(fullHistory); i++ {
 		// --- 1. Calculate Feature for this row (i) ---
-		
+
 		// Create a window slice ending at i
-		// (Go slice exclude 'end', so we normally do i+1, 
+		// (Go slice exclude 'end', so we normally do i+1,
 		// but since we pass slice to CalcFeatures, let's construct it manually for clarity)
-		
+
 		// We need the previous 'VectorWindow + 1' items to get 'VectorWindow' returns
 		windowStart := i - p.VectorWindow
 		// slice: [start : current+1]
-		currentSlice := fullHistory[windowStart : i+1] 
-		
+		currentSlice := fullHistory[windowStart : i+1]
+
 		feature := p.CalculateFeatures(currentSlice)
 		if feature == nil {
 			continue
 		}
 
 		// --- 2. Calculate Labels for this row (i) ---
-		// Note: In Python bulk code, you looked AHEAD. 
+		// Note: In Python bulk code, you looked AHEAD.
 		// "At time T, what is the return at T+1?"
-		
+
 		labels := []LabelUpdate{}
-		
+
 		// Label A: Next Return (Target for THIS row)
 		if i+1 < len(fullHistory) {
 			currClose := fullHistory[i].Close
@@ -172,7 +187,7 @@ func (p *PatternAI) CalculateBulkData(fullHistory []InputData) []BulkResult {
 			if currClose != 0 {
 				ret := (nextClose - currClose) / currClose
 				labels = append(labels, LabelUpdate{
-					TargetTime: feature.Time,
+					TargetTime: feature.Time.Unix(), // Fixed: Time.Time -> int64
 					Column:     "next_return",
 					Value:      ret,
 				})
@@ -185,9 +200,9 @@ func (p *PatternAI) CalculateBulkData(fullHistory []InputData) []BulkResult {
 			for k := 1; k <= 3; k++ {
 				futurePrices = append(futurePrices, fullHistory[i+k].Close)
 			}
-			slope := GetSlope(futurePrices)
+			slope := CalculateSlope(futurePrices)
 			labels = append(labels, LabelUpdate{
-				TargetTime: feature.Time,
+				TargetTime: feature.Time.Unix(),
 				Column:     "next_slope_3",
 				Value:      slope,
 			})
@@ -199,9 +214,9 @@ func (p *PatternAI) CalculateBulkData(fullHistory []InputData) []BulkResult {
 			for k := 1; k <= 5; k++ {
 				futurePrices = append(futurePrices, fullHistory[i+k].Close)
 			}
-			slope := GetSlope(futurePrices)
+			slope := CalculateSlope(futurePrices)
 			labels = append(labels, LabelUpdate{
-				TargetTime: feature.Time,
+				TargetTime: feature.Time.Unix(),
 				Column:     "next_slope_5",
 				Value:      slope,
 			})

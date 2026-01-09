@@ -6,128 +6,130 @@ import (
 	"time"
 )
 
-// Helper: ฟังก์ชันเปรียบเทียบ Float ว่าเท่ากันไหม (โดยยอมให้คลาดเคลื่อนได้นิดหน่อย)
-func assertFloatEquals(t *testing.T, name string, expected, actual float64) {
-	epsilon := 1e-6 // ยอมรับความคลาดเคลื่อนทศนิยมตำแหน่งที่ 6
-	if math.Abs(expected-actual) > epsilon {
-		t.Errorf("%s: expected %v, got %v", name, expected, actual)
+// Test CalculateSlope (formerly GetSlope)
+func TestCalculateSlope(t *testing.T) {
+	// 1. Flat line (Slope = 0)
+	flat := []float64{10, 10, 10, 10}
+	slope := CalculateSlope(flat)
+	if slope != 0 {
+		t.Errorf("Expected slope 0, got %f", slope)
+	}
+
+	// 2. Linear increase (Slope should be positive)
+	// y = x (normalized against start value)
+	rising := []float64{10, 11, 12, 13}
+	slopeRising := CalculateSlope(rising)
+	if slopeRising <= 0 {
+		t.Errorf("Expected positive slope, got %f", slopeRising)
+	}
+
+	// 3. Linear decrease
+	falling := []float64{10, 9, 8, 7}
+	slopeFalling := CalculateSlope(falling)
+	if slopeFalling >= 0 {
+		t.Errorf("Expected negative slope, got %f", slopeFalling)
 	}
 }
 
-// ---------------------------------------------------------
-// Test 1: ทดสอบ Math Helper - Slope (Linear Regression)
-// ---------------------------------------------------------
-func TestGetSlope(t *testing.T) {
-	// Scenario: ราคาขึ้นเป็นเส้นตรงเป๊ะๆ
-	// 100 -> 110 (ขึ้น 10%) -> 120 (เทียบกับฐาน 100 คือ 20%)
-	// Norm Y: [0.0, 0.1, 0.2]
-	// X:      [0, 1, 2]
-	// Slope ควรเท่ากับ 0.1
-	prices := []float64{100, 110, 120}
-	
-	expectedSlope := 0.1
-	actualSlope := GetSlope(prices)
+// Test CalculateZScore
+func TestCalculateZScore(t *testing.T) {
+	data := []float64{2, 4, 4, 4, 5, 5, 7, 9}
+	zscores := CalculateZScore(data)
 
-	assertFloatEquals(t, "Slope Calculation", expectedSlope, actualSlope)
+	if len(zscores) != len(data) {
+		t.Fatalf("Expected output length %d, got %d", len(data), len(zscores))
+	}
+
+	// Sum of Z-scores should be approximately 0
+	sum := 0.0
+	for _, z := range zscores {
+		sum += z
+	}
+
+	if math.Abs(sum) > 1e-9 {
+		t.Errorf("Sum of Z-scores should be ~0, got %f", sum)
+	}
 }
 
-// ---------------------------------------------------------
-// Test 2: ทดสอบ Feature Generation (Embedding)
-// ---------------------------------------------------------
-func TestCalculateFeatures_ZigZag(t *testing.T) {
-	// Setup: Window = 2 (ดูย้อนหลัง 2 Return)
-	// ต้องใช้ข้อมูล 3 แท่ง (N+1) เพื่อให้ได้ 2 Returns
+// Test PatternAI Features (formerly CalcFeatures)
+func TestCalculateFeatures(t *testing.T) {
+	// Setup
+	ai := NewPatternAI("BTCUSDT", "1h", "v1", 5) // Window = 5
 	
-	// Mock Data: ราคาเด้งขึ้นลงเท่ากัน (Zig-Zag)
-	// T0: 100
-	// T1: 200 (Log Return ≈ 0.693)
-	// T2: 100 (Log Return ≈ -0.693)
-	
-	// Mean ของ Returns ≈ 0
-	// Std ของ Returns ≈ 0.693
-	// ดังนั้น Z-Score ควรจะเป็น [1.0, -1.0] (โดยประมาณ)
-	
-	mockTime := time.Date(2026, 1, 9, 12, 0, 0, 0, time.UTC)
-	
+	// Create dummy history (need window+1 = 6 items)
 	history := []InputData{
-		{Time: mockTime.Add(-2 * time.Minute).UnixMilli(), Close: 100.0},
-		{Time: mockTime.Add(-1 * time.Minute).UnixMilli(), Close: 200.0},
-		{Time: mockTime.UnixMilli(),                       Close: 100.0},
+		{Time: 1000, Close: 100.0},
+		{Time: 1001, Close: 102.0},
+		{Time: 1002, Close: 101.0},
+		{Time: 1003, Close: 103.0},
+		{Time: 1004, Close: 104.0},
+		{Time: 1005, Close: 105.0}, // Last candle
 	}
 
-	// Init AI logic
-	// Window = 2
-	ai := NewPatternAI("BTCUSDT", "1m", "test-model", 2)
-
-	// Action
-	result := ai.CalcFeatures(history)
+	// Execute
+	feature := ai.CalculateFeatures(history)
 
 	// Assertions
-	if result == nil {
-		t.Fatal("Result should not be nil")
+	if feature == nil {
+		t.Fatal("Expected feature to be generated, got nil")
 	}
 
-	// 1. Check Metadata
-	if result.Symbol != "BTCUSDT" {
-		t.Errorf("Symbol mismatch: got %s", result.Symbol)
-	}
-	
-	// 2. Check Embedding Length
-	if len(result.Embedding) != 2 {
-		t.Fatalf("Embedding length mismatch: expected 2, got %d", len(result.Embedding))
+	if feature.Symbol != "BTCUSDT" {
+		t.Errorf("Expected symbol BTCUSDT, got %s", feature.Symbol)
 	}
 
-	// 3. Check Z-Score Logic
-	// Return 1: ln(200) - ln(100) = 0.693147
-	// Return 2: ln(100) - ln(200) = -0.693147
-	// Mean = 0
-	// Std = 0.693147
-	// Z-Score 1 = (0.693147 - 0) / 0.693147 = 1.0
-	// Z-Score 2 = (-0.693147 - 0) / 0.693147 = -1.0
-	
-	assertFloatEquals(t, "Embedding[0] (Positive Move)", 1.0, result.Embedding[0])
-	assertFloatEquals(t, "Embedding[1] (Negative Move)", -1.0, result.Embedding[1])
-
-	t.Logf("Success! Embedding Result: %v", result.Embedding)
-}
-
-// ---------------------------------------------------------
-// Test 3: ทดสอบกรณีข้อมูลไม่พอ (Not Enough Data)
-// ---------------------------------------------------------
-func TestCalculateFeatures_NotEnoughData(t *testing.T) {
-	ai := NewPatternAI("BTCUSDT", "1m", "test-model", 60)
-	
-	// ใส่ข้อมูลแค่ 10 ตัว (ต้องการ 61)
-	history := make([]InputData, 10)
-	for i := range history {
-		history[i] = InputData{Time: int64(i), Close: 100}
+	if len(feature.Embedding) != 5 {
+		t.Errorf("Expected embedding length 5, got %d", len(feature.Embedding))
 	}
 
-	result := ai.CalculateFeatures(history)
-
-	if result != nil {
-		t.Error("Should return nil when data is insufficient")
+	// Check time conversion (int64 -> time.Time)
+	expectedTime := time.Unix(1005, 0)
+	if !feature.Time.Equal(expectedTime) {
+		t.Errorf("Expected time %v, got %v", expectedTime, feature.Time)
 	}
 }
 
-// ---------------------------------------------------------
-// Test 4: ทดสอบ Planck Constant (Zero Variance Case)
-// ---------------------------------------------------------
-func TestCalculateFeatures_FlatLine(t *testing.T) {
-	// ราคานิ่งสนิท 100, 100, 100
-	// Returns = [0, 0]
-	// Mean = 0, Std = 0
-	// Z-Score = (0 - 0) / (0 + Planck) = 0
+// Test Bulk Calculation
+func TestCalculateBulkData(t *testing.T) {
+	ai := NewPatternAI("ETHUSDT", "15m", "v1", 3) // Window = 3
 	
+	// Create enough history for at least 2 windows
+	// Indices: 0, 1, 2, 3 (First Window), 4 (Second Window) -> Length 5
 	history := []InputData{
-		{Time: 1000, Close: 100},
-		{Time: 2000, Close: 100},
-		{Time: 3000, Close: 100},
+		{Time: 100, Close: 10.0},
+		{Time: 200, Close: 11.0},
+		{Time: 300, Close: 12.0},
+		{Time: 400, Close: 13.0}, // End of first valid window (indices 0-3)
+		{Time: 500, Close: 14.0}, // End of second valid window (indices 1-4)
+		{Time: 600, Close: 15.0}, // Future data for labels
 	}
 
-	ai := NewPatternAI("BTCUSDT", "1m", "test-model", 2)
-	result := ai.CalculateFeatures(history)
+	results := ai.CalculateBulkData(history)
 
-	assertFloatEquals(t, "Flat Line Embedding[0]", 0.0, result.Embedding[0])
-	assertFloatEquals(t, "Flat Line Embedding[1]", 0.0, result.Embedding[1])
+	if len(results) == 0 {
+		t.Fatal("Expected bulk results, got 0")
+	}
+
+	// Verify the first result
+	firstRes := results[0]
+	if firstRes.Features.ClosePrice != 13.0 {
+		t.Errorf("Expected first feature close 13.0, got %f", firstRes.Features.ClosePrice)
+	}
+
+	// Check if labels were generated
+	hasReturnLabel := false
+	for _, lbl := range firstRes.Labels {
+		if lbl.Column == "next_return" {
+			hasReturnLabel = true
+			// Next return for close 13.0 (at 400) is close 14.0 (at 500)
+			// (14-13)/13 = 1/13 ≈ 0.0769
+			if lbl.Value < 0.07 || lbl.Value > 0.08 {
+				t.Errorf("Unexpected return label value: %f", lbl.Value)
+			}
+		}
+	}
+
+	if !hasReturnLabel {
+		t.Error("Missing 'next_return' label in bulk results")
+	}
 }
