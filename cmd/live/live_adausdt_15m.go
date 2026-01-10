@@ -9,18 +9,38 @@ import (
 
 	"github.com/adshao/go-binance/v2/futures"
 
+	"time-series-rag-agent/config"
 	"time-series-rag-agent/internal/ai"
+	"time-series-rag-agent/internal/database"
+	"time-series-rag-agent/internal/plot"
 )
 
 // --- Configuration ---
 const (
 	Symbol       = "ADAUSDT"
 	Interval     = "1m" // Binance string
-	IntervalSecs = 60   // Used for math checks (1m = 60s)
+	IntervalSecs = 60   // * 15 // Used for math checks (1m = 60s)
 	VectorWindow = 60   // N candles for the pattern
+	top_k        = 12
 )
 
 func main() {
+	cfg := config.LoadConfig()
+	connString := fmt.Sprintf("postgres://%s:%s@%s:%d/%s",
+		cfg.Database.DBUser,
+		cfg.Database.DBPassword,
+		cfg.Database.DBHost,
+		cfg.Database.DBPort,
+		cfg.Database.DBName,
+	)
+	pg, err := database.NewPostgresDB(connString)
+	if err != nil {
+		log.Fatalf("❌ Database Connection Failed: %v", err)
+	}
+	defer pg.Close()
+
+	fmt.Println("✅ Connected to Postgres & pgvector")
+
 	// ========================================================================
 	//  Websocket to gather data
 	// ========================================================================
@@ -29,7 +49,7 @@ func main() {
 
 	// Start WebSocket Listener
 	fmt.Printf("--- Connecting to Binance Futures [%s @ %s] ---\n", Symbol, Interval)
-	
+
 	// Create a channel to keep main alive (or use a signal handler)
 	doneC := make(chan struct{})
 
@@ -47,19 +67,17 @@ func main() {
 		// ---  HOT PATH: Candle Just Closed ---
 		// event.Kline.IsFinal is True
 		start := time.Now()
-		
-		// 1. Parse Live Candle
-		// Binance times are in Milliseconds -> Convert to Seconds
-		openTimeSec := event.Kline.StartTime / 1000
-		closePrice, _ := strconv.ParseFloat(event.Kline.Close, 64)
 
 		liveCandle := ai.InputData{
-			Time:  openTimeSec, 
-			Close: closePrice,
+			Time:  event.Kline.StartTime / 1000,
+			Open:  parse(event.Kline.Open),
+			High:  parse(event.Kline.High),
+			Low:   parse(event.Kline.Low),
+			Close: parse(event.Kline.Close),
 		}
 
-		fmt.Printf("\n[Event] Candle Closed: %s | Price: %.4f\n", 
-			time.Unix(liveCandle.Time, 0).Format("15:04:05"), 
+		fmt.Printf("\n[Event] Candle Closed: %s | Price: %.4f\n",
+			time.Unix(liveCandle.Time, 0).Format("15:04:05"),
 			liveCandle.Close,
 		)
 
@@ -80,20 +98,52 @@ func main() {
 
 		// 4. Calculate Features
 		feature := agent.CalculateFeatures(cleanWindow)
+		if feature == nil {
+			return
+		}
+		fmt.Printf("✅ Feature Ready in %v | Embedding Size: %d\n", time.Since(start), len(feature.Embedding))
 
-		if feature != nil {
-			// Success!
-			fmt.Printf("✅ Feature Ready in %v | Embedding Size: %d\n", time.Since(start), len(feature.Embedding))
-			
-			// Optional: Print first 3 embedding values to verify it's working
-			if len(feature.Embedding) >= 3 {
-				fmt.Printf("   Vec: [%.4f, %.4f, %.4f ...]\n", feature.Embedding[0], feature.Embedding[1], feature.Embedding[2])
+		matches, err := pg.SearchPatterns(context.Background(), feature.Embedding, top_k, Symbol)
+		if len(matches) > 0 {
+			log.Printf("🔎 Found %d matches. Visualizing alignment...", len(matches))
+
+			// FIX: Pass feature.Embedding (Current) and matches (Historical)
+			//filename := fmt.Sprintf("chart_%s.png", time.Now().Format("150405"))
+			const filename string = "chart.png"
+
+			err := plot.GeneratePredictionChart(feature.Embedding, matches, filename)
+
+			if err != nil {
+				log.Printf("❌ Plot Error: %v", err)
+			} else {
+				log.Printf("📊 Chart saved: %s", filename)
+			}
+
+			// filename_cancdle_chart := fmt.Sprintf("candle_chart_%s.png", time.Now().Format("150405"))
+			const filename_cancdle_chart string = "candle.png"
+			err_candle_chart := plot.GenerateCandleChart(cleanWindow, filename_cancdle_chart)
+			if err != nil {
+				log.Printf("❌ Plot Error: %v", err_candle_chart)
+			} else {
+				log.Printf("📊 Chart saved: %s", filename_cancdle_chart)
 			}
 		}
+		go func(feat *ai.PatternFeature, window []ai.InputData) {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
 
-		// --- Calculate Labels (For Database) ---
-		// "What 'Truths' did we just learn about the past?"
-		labels := agent.CalculateLabels(cleanWindow)
+			// A. Calculate Labels (The "Truth" about the past)
+			labels := agent.CalculateLabels(window)
+
+			// B. Ingest (Insert T, Update T-n)
+			err := pg.IngestPattern(ctx, feat, labels)
+			if err != nil {
+				log.Printf("⚠️ Ingestion Failed: %v", err)
+			} else {
+				log.Printf("💾 [Ingest] Saved T (%s) & Updated %d Past Labels",
+					feat.Time.Format("15:04"), len(labels))
+			}
+		}(feature, cleanWindow) // Pass copies/pointers safely
 	}
 
 	// Start the stream
@@ -101,14 +151,13 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to connect WS: %v", err)
 	}
-	
+
 	<-done
 	<-doneC
 }
 
 // --- Real Infrastructure Helpers ---
 
-// fetchRealHistory calls the actual Binance Futures API
 func fetchRealHistory(client *futures.Client, symbol string, interval string, limit int) ([]ai.InputData, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -127,19 +176,22 @@ func fetchRealHistory(client *futures.Client, symbol string, interval string, li
 	// Convert Binance Response -> []ai.InputData
 	data := make([]ai.InputData, len(klines))
 	for i, k := range klines {
-		// Parse Open Time (ms -> s)
-		// Note: Binance returns OpenTime. Technical Analysis usually aligns on OpenTime.
+		// 1. Parse TIME
 		openTime := k.OpenTime / 1000
-		
-		// Parse Close Price (string -> float)
-		closePrice, err := strconv.ParseFloat(k.Close, 64)
-		if err != nil {
-			return nil, fmt.Errorf("bad float price: %v", err)
-		}
+
+		// 2. Parse ALL Prices (Open, High, Low, Close)
+		// Crucial: You must parse these, or they default to 0.0
+		op, _ := strconv.ParseFloat(k.Open, 64)
+		hi, _ := strconv.ParseFloat(k.High, 64)
+		lo, _ := strconv.ParseFloat(k.Low, 64)
+		cl, _ := strconv.ParseFloat(k.Close, 64)
 
 		data[i] = ai.InputData{
 			Time:  openTime,
-			Close: closePrice,
+			Open:  op, // <--- This was missing
+			High:  hi, // <--- This was missing
+			Low:   lo, // <--- This was missing
+			Close: cl,
 		}
 	}
 
@@ -168,12 +220,17 @@ func SafeMerge(history []ai.InputData, live ai.InputData, reqWindow int, interva
 	// Step D: Verify Continuity (Gap Check)
 	lastHistTime := neededHistory[len(neededHistory)-1].Time
 	diff := live.Time - lastHistTime
-	
+
 	if diff != intervalSecs {
-		return nil, fmt.Errorf("GAP! HistEnd: %d, Live: %d, Diff: %d (Expected %d)", 
+		return nil, fmt.Errorf("GAP! HistEnd: %d, Live: %d, Diff: %d (Expected %d)",
 			lastHistTime, live.Time, diff, intervalSecs)
 	}
 
 	// Step E: Combine
 	return append(neededHistory, live), nil
+}
+
+func parse(s string) float64 {
+	v, _ := strconv.ParseFloat(s, 64)
+	return v
 }

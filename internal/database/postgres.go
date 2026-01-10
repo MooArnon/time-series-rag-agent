@@ -1,15 +1,15 @@
 package database
-package store
 
 import (
 	"context"
 	"fmt"
 	"time"
 
+	"time-series-rag-agent/internal/ai"
+
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pgvector/pgvector-go"
-	"time-series-rag-agent/internal/ai"
 )
 
 type PostgresDB struct {
@@ -25,7 +25,7 @@ func NewPostgresDB(connString string) (*PostgresDB, error) {
 	return &PostgresDB{Pool: pool}, nil
 }
 
-// IngestPattern handles the "Parallel Flow": 
+// IngestPattern handles the "Parallel Flow":
 // 1. Saves the NEW pattern (T)
 // 2. Updates the OLD patterns (T-1, T-3, etc) with new labels
 func (db *PostgresDB) IngestPattern(ctx context.Context, feature *ai.PatternFeature, labels []ai.LabelUpdate) error {
@@ -38,19 +38,25 @@ func (db *PostgresDB) IngestPattern(ctx context.Context, feature *ai.PatternFeat
 	// --- 1. Insert/Upsert the Current Feature (T) ---
 	// We save the Embedding NOW. The labels (next_return, slope) are NULL for now.
 	q1 := `
-		INSERT INTO market_patterns (time, symbol, interval, close_price, embedding)
+		INSERT INTO market_pattern_go (time, symbol, interval, close_price, embedding)
 		VALUES ($1, $2, $3, $4, $5)
 		ON CONFLICT (symbol, interval, time) 
 		DO UPDATE SET embedding = $5, close_price = $4;
 	`
+	// FIXED: Convert []float64 -> []float32 for pgvector
+	embedding32 := make([]float32, len(feature.Embedding))
+	for i, v := range feature.Embedding {
+		embedding32[i] = float32(v)
+	}
+
 	// Convert []float64 to pgvector.Vector
-	vec := pgvector.NewVector(feature.Embedding)
-	
-	_, err = tx.Exec(ctx, q1, 
-		feature.Time.Unix(), 
-		feature.Symbol, 
-		feature.Interval, 
-		feature.ClosePrice, 
+	vec := pgvector.NewVector(embedding32)
+
+	_, err = tx.Exec(ctx, q1,
+		feature.Time.Unix(),
+		feature.Symbol,
+		feature.Interval,
+		feature.ClosePrice,
 		vec,
 	)
 	if err != nil {
@@ -61,15 +67,15 @@ func (db *PostgresDB) IngestPattern(ctx context.Context, feature *ai.PatternFeat
 	// "Labels" contains the computed truth for past timestamps.
 	if len(labels) > 0 {
 		batch := &pgx.Batch{}
-		
+
 		for _, lbl := range labels {
 			// Dynamic update query based on which column we calculated
 			// (next_return, next_slope_3, etc)
 			query := fmt.Sprintf(
-				"UPDATE market_patterns SET %s = $1 WHERE time = $2 AND symbol = $3 AND interval = $4", 
+				"UPDATE market_pattern_go SET %s = $1 WHERE time = $2 AND symbol = $3 AND interval = $4",
 				lbl.Column, // Safe because we control the column names in AI package
 			)
-			
+
 			batch.Queue(query, lbl.Value, lbl.TargetTime, feature.Symbol, feature.Interval)
 		}
 
@@ -85,4 +91,121 @@ func (db *PostgresDB) IngestPattern(ctx context.Context, feature *ai.PatternFeat
 
 func (db *PostgresDB) Close() {
 	db.Pool.Close()
+}
+
+// BulkSave inserts many patterns at once (optimized for Backfill)
+func (db *PostgresDB) BulkSave(ctx context.Context, results []ai.BulkResult) error {
+	batch := &pgx.Batch{}
+
+	query := `
+        INSERT INTO market_pattern_go (
+            time, symbol, interval, close_price, embedding, 
+            next_return, next_slope_3, next_slope_5
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        ON CONFLICT (time, symbol, interval) DO UPDATE SET
+            embedding = EXCLUDED.embedding,
+            next_return = EXCLUDED.next_return,
+            next_slope_3 = EXCLUDED.next_slope_3,
+            next_slope_5 = EXCLUDED.next_slope_5;
+    `
+
+	for _, res := range results {
+		// 1. Prepare Vector
+		embedding32 := make([]float32, len(res.Features.Embedding))
+		for i, v := range res.Features.Embedding {
+			embedding32[i] = float32(v)
+		}
+		vec := pgvector.NewVector(embedding32)
+
+		// 2. Map Labels to Columns
+		// BulkResult.Labels contains dynamic rows, we need to flatten them to columns
+		var nextRet, slope3, slope5 *float64 // Use pointers to handle NULLs
+
+		for _, lbl := range res.Labels {
+			val := lbl.Value
+			switch lbl.Column {
+			case "next_return":
+				nextRet = &val
+			case "next_slope_3":
+				slope3 = &val
+			case "next_slope_5":
+				slope5 = &val
+			}
+		}
+
+		// 3. Queue the Batch
+		// res.Features.Time is time.Time, convert to Unix() for BIGINT schema
+		batch.Queue(query,
+			res.Features.Time.Unix(),
+			res.Features.Symbol,
+			res.Features.Interval,
+			res.Features.ClosePrice,
+			vec,
+			nextRet, slope3, slope5,
+		)
+	}
+
+	// 4. Execute
+	br := db.Pool.SendBatch(ctx, batch)
+	defer br.Close()
+
+	_, err := br.Exec()
+	return err
+}
+
+func (db *PostgresDB) SearchPatterns(ctx context.Context, queryVec []float64, k int, currentSymbol string) ([]ai.PatternLabel, error) {
+	// 1. Convert Query to float32
+	embedding32 := make([]float32, len(queryVec))
+	for i, v := range queryVec {
+		embedding32[i] = float32(v)
+	}
+	qVec := pgvector.NewVector(embedding32)
+
+	// 2. Update Query: SELECT embedding
+	sql := `
+        SELECT time, symbol, interval, next_return, next_slope_3, next_slope_5, embedding
+        FROM market_pattern_go
+        WHERE next_return IS NOT NULL
+        ORDER BY embedding <=> $1 ASC
+        LIMIT $2
+    `
+
+	rows, err := db.Pool.Query(ctx, sql, qVec, k)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []ai.PatternLabel
+
+	for rows.Next() {
+		var r ai.PatternLabel
+		var rawTime int64
+		var slope3, slope5 *float64
+		var vec pgvector.Vector // Temp for scanning
+
+		// Scan the vector
+		err := rows.Scan(&rawTime, &r.Symbol, &r.Interval, &r.NextReturn, &slope3, &slope5, &vec)
+		if err != nil {
+			return nil, err
+		}
+
+		r.Time = time.Unix(rawTime, 0).UTC()
+		if slope3 != nil {
+			r.NextSlope3 = *slope3
+		}
+		if slope5 != nil {
+			r.NextSlope5 = *slope5
+		}
+
+		// Convert pgvector (float32) back to []float64 for Go
+		r.Embedding = make([]float64, len(vec.Slice()))
+		for i, v := range vec.Slice() {
+			r.Embedding[i] = float64(v)
+		}
+
+		results = append(results, r)
+	}
+
+	return results, nil
 }

@@ -30,6 +30,9 @@ func NewPatternAI(
 // Fixed: Used 'type' keyword
 type InputData struct {
 	Time  int64
+	Open  float64
+	High  float64
+	Low   float64
 	Close float64
 }
 

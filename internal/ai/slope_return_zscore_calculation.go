@@ -17,8 +17,10 @@ type PatternLabel struct {
 	Time       time.Time `json:"time"`
 	Symbol     string    `json:"symbol"`
 	Interval   string    `json:"interval"`
+	NextReturn float64   `json:"next_return"`
 	NextSlope3 float64   `json:"next_slope_3"`
 	NextSlope5 float64   `json:"next_slope_5"`
+	Embedding  []float64
 }
 
 // The fundamental constant of action.
@@ -36,10 +38,10 @@ func CalculateLogReturn(closes []float64) []float64 {
 	for i := 1; i < len(closes); i++ {
 		curr := math.Log(closes[i] + PlanckConstant)
 		prev := math.Log(closes[i-1] + PlanckConstant)
-		
+
 		// Fixed: 'res[-1]' is invalid in Go. Used 'i-1'.
 		// Standard Log Return is ln(curr) - ln(prev)
-		res[i-1] = curr - prev 
+		res[i-1] = curr - prev
 	}
 	return res
 }
@@ -64,7 +66,7 @@ func CalculateZScore(data []float64) []float64 {
 		// Fixed: Accumulate (+=), do not redeclare (:=) inside loop
 		sqDiffSum += math.Pow(v-mean, 2)
 	}
-	
+
 	// Fixed: Calculate std OUTSIDE the loop
 	std := math.Sqrt(sqDiffSum / float64(len(data)))
 
