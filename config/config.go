@@ -6,13 +6,18 @@ import (
 )
 
 type AppConfig struct {
-	Market   BinanceMarketConfig
-	Database DatabaseConfig
+	Market     BinanceMarketConfig
+	Database   DatabaseConfig
+	OpenRouter OpenRouterConfig
 }
 
 type BinanceMarketConfig struct {
 	ApiKey    string
 	ApiSecret string
+}
+
+type OpenRouterConfig struct {
+	ApiKey string
 }
 
 type DatabaseConfig struct {
@@ -35,6 +40,9 @@ func LoadConfig() *AppConfig {
 			DBUser:     getEnv("DB_USER", ""),
 			DBPassword: getEnv("DB_PASSWORD", ""),
 			DBName:     getEnv("DB_NAME", ""),
+		},
+		OpenRouter: OpenRouterConfig{
+			ApiKey: getEnv("OPENAI_API_KEY", ""),
 		},
 	}
 }

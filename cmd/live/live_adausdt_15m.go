@@ -12,6 +12,7 @@ import (
 	"time-series-rag-agent/config"
 	"time-series-rag-agent/internal/ai"
 	"time-series-rag-agent/internal/database"
+	"time-series-rag-agent/internal/llm"
 	"time-series-rag-agent/internal/plot"
 )
 
@@ -109,24 +110,40 @@ func main() {
 
 			// FIX: Pass feature.Embedding (Current) and matches (Historical)
 			//filename := fmt.Sprintf("chart_%s.png", time.Now().Format("150405"))
-			const filename string = "chart.png"
+			const fileProj string = "chart.png"
 
-			err := plot.GeneratePredictionChart(feature.Embedding, matches, filename)
+			err := plot.GeneratePredictionChart(feature.Embedding, matches, fileProj)
 
 			if err != nil {
 				log.Printf("❌ Plot Error: %v", err)
 			} else {
-				log.Printf("📊 Chart saved: %s", filename)
+				log.Printf("📊 Chart saved: %s", fileProj)
 			}
 
 			// filename_cancdle_chart := fmt.Sprintf("candle_chart_%s.png", time.Now().Format("150405"))
-			const filename_cancdle_chart string = "candle.png"
-			err_candle_chart := plot.GenerateCandleChart(cleanWindow, filename_cancdle_chart)
+			const fileCandle string = "candle.png"
+			err_candle_chart := plot.GenerateCandleChart(cleanWindow, fileCandle)
 			if err != nil {
 				log.Printf("❌ Plot Error: %v", err_candle_chart)
 			} else {
-				log.Printf("📊 Chart saved: %s", filename_cancdle_chart)
+				log.Printf("📊 Chart saved: %s", fileCandle)
 			}
+
+			llmClient := llm.NewLLMService(cfg.OpenRouter.ApiKey)
+			sysMsg, usrMsg, b64A, b64B, err := llmClient.GenerateTradingPrompt(
+				time.Now().Format("15:04:05"),
+				matches,
+				fileProj,   // Chart A (Macro)
+				fileCandle, // Chart B (Micro)
+			)
+			if err != nil {
+				log.Printf("❌ Prompt Error: %v", err)
+				return
+			}
+			log.Println("b64A", b64A)
+			log.Println("b64B", b64B)
+			log.Println("sysMsg", sysMsg)
+			log.Println("usrMsg", usrMsg)
 		}
 		go func(feat *ai.PatternFeature, window []ai.InputData) {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
