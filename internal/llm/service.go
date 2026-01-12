@@ -12,6 +12,7 @@ import (
 	"os"
 	"strings"
 	"time"
+	"time-series-rag-agent/config"
 
 	"time-series-rag-agent/internal/ai"
 )
@@ -21,7 +22,6 @@ const (
 	LLM_API_URL          = "https://openrouter.ai/api/v1/chat/completions"
 	MODEL_NAME           = "anthropic/claude-sonnet-4.5"
 	CONFIDENCE_THRESHOLD = 65
-	LEVERAGE             = 3
 )
 
 // --- Structs for JSON Response ---
@@ -55,23 +55,26 @@ func NewLLMService(apiKey string) *LLMService {
 func (s *LLMService) GenerateTradingPrompt(
 	currentTime string,
 	matches []ai.PatternLabel,
-	chartPathA string, // RAG Pattern (Line Chart)
-	chartPathB string, // Price Action (Candles)
+	chartPathA string,
+	chartPathB string,
 ) (string, string, string, string, error) {
 
-	// --- A. Process Statistical Data (The Go equivalent of your Python loop) ---
+	// --- A. Process Statistical Data ---
 	type HistoricalDetail struct {
 		Time            string `json:"time"`
 		TrendSlope      string `json:"trend_slope"`
 		TrendOutcome    string `json:"trend_outcome"`
 		ImmediateReturn string `json:"immediate_return"`
+		Distance        string `json:"distance"`         // <--- Added
+		Similarity      string `json:"similarity_score"` // <--- Added
 	}
+
+	cfg := config.LoadConfig()
 
 	var cleanData []HistoricalDetail
 	var slopes []float64
 
 	for _, m := range matches {
-		// Prioritize Slope 3, fallback to Slope 5
 		slope := m.NextSlope3
 		if slope == 0 {
 			slope = m.NextSlope5
@@ -83,11 +86,22 @@ func (s *LLMService) GenerateTradingPrompt(
 			trendDir = "UP"
 		}
 
+		// Calculate basic similarity % (1.0 - Distance)
+		// Distance usually 0.0 to 1.0 (Cosine Distance)
+		// If Distance is > 1.0 (Euclidean), this might need adjustment,
+		// but for Cosine, (1-Dist)*100 is a good proxy.
+		simScore := (1.0 - m.Distance) * 100
+		if simScore < 0 {
+			simScore = 0
+		}
+
 		cleanData = append(cleanData, HistoricalDetail{
 			Time:            m.Time.Format("2006-01-02 15:04"),
 			TrendSlope:      fmt.Sprintf("%.6f", slope),
 			TrendOutcome:    trendDir,
 			ImmediateReturn: fmt.Sprintf("%.4f%%", m.NextReturn*100),
+			Distance:        fmt.Sprintf("%.4f", m.Distance), // <--- Populated
+			Similarity:      fmt.Sprintf("%.1f%%", simScore), // <--- Populated
 		})
 	}
 
@@ -120,7 +134,7 @@ INPUTS:
 1. **Chart A (Macro):** RAG Pattern Analysis (Line Chart).
    Data Context: Normalized Market Vector. The numerical sequence provided is a Z-Score Normalized Log-Return Vector representing the market's "shape".
 2. **Chart B (Micro):** Live Price Action (Candlesticks).
-3. **Historical Match Details** The numeric data from Chart A
+3. **Historical Match Details** The numeric data from Chart. (distance came duing search from pgvector)
 
 OUTPUT FORMAT:
 Output ONLY a valid JSON string (no markdown, no preamble).
@@ -149,7 +163,7 @@ Look at the last 1-3 candles in Chart B.
 ENVIRONMENT :
 - The leverage will be set at %d
 - The stoploss will be set at every trade, it's 2 percent from the market price... 
-`, LEVERAGE)
+`, cfg.Agent.Leverage)
 
 	// --- C. Build User Message (The Evidence) ---
 	userContent := fmt.Sprintf(`

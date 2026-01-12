@@ -154,19 +154,22 @@ func (db *PostgresDB) BulkSave(ctx context.Context, results []ai.BulkResult) err
 }
 
 func (db *PostgresDB) SearchPatterns(ctx context.Context, queryVec []float64, k int, currentSymbol string) ([]ai.PatternLabel, error) {
-	// 1. Convert Query to float32
 	embedding32 := make([]float32, len(queryVec))
 	for i, v := range queryVec {
 		embedding32[i] = float32(v)
 	}
 	qVec := pgvector.NewVector(embedding32)
 
-	// 2. Update Query: SELECT embedding
+	// UPDATE QUERY: Add "embedding <=> $1" to SELECT list
 	sql := `
-        SELECT time, symbol, interval, next_return, next_slope_3, next_slope_5, embedding
+        SELECT 
+            time, symbol, interval, 
+            next_return, next_slope_3, next_slope_5, 
+            embedding,
+            (embedding <=> $1) as distance  -- <--- Fetch Distance
         FROM market_pattern_go
         WHERE next_return IS NOT NULL
-        ORDER BY embedding <=> $1 ASC
+        ORDER BY distance ASC
         LIMIT $2
     `
 
@@ -182,10 +185,15 @@ func (db *PostgresDB) SearchPatterns(ctx context.Context, queryVec []float64, k 
 		var r ai.PatternLabel
 		var rawTime int64
 		var slope3, slope5 *float64
-		var vec pgvector.Vector // Temp for scanning
+		var vec pgvector.Vector
 
-		// Scan the vector
-		err := rows.Scan(&rawTime, &r.Symbol, &r.Interval, &r.NextReturn, &slope3, &slope5, &vec)
+		// UPDATE SCAN: Add &r.Distance at the end
+		err := rows.Scan(
+			&rawTime, &r.Symbol, &r.Interval,
+			&r.NextReturn, &slope3, &slope5,
+			&vec,
+			&r.Distance, // <--- Scan into struct
+		)
 		if err != nil {
 			return nil, err
 		}
@@ -198,7 +206,6 @@ func (db *PostgresDB) SearchPatterns(ctx context.Context, queryVec []float64, k 
 			r.NextSlope5 = *slope5
 		}
 
-		// Convert pgvector (float32) back to []float64 for Go
 		r.Embedding = make([]float64, len(vec.Slice()))
 		for i, v := range vec.Slice() {
 			r.Embedding[i] = float64(v)

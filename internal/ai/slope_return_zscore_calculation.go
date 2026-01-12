@@ -21,6 +21,7 @@ type PatternLabel struct {
 	NextSlope3 float64   `json:"next_slope_3"`
 	NextSlope5 float64   `json:"next_slope_5"`
 	Embedding  []float64
+	Distance   float64
 }
 
 // The fundamental constant of action.
