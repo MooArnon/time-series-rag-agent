@@ -80,10 +80,10 @@ func LoadConfig() *AppConfig {
 			DISCORD_NOTIFY_WEBHOOK_URL: getEnv("DISCORD_NOTIFY_WEBHOOK_URL", ""),
 		},
 		Agent: AgentConfig{
-			AviableTradeRatio: getEnvAsFloat("AviableTradeRatio", 0.90),
-			Leverage:          getEnvAsInt("Leverage", 3),
-			SLPercentage:      getEnvAsFloat("SLPercentage", 0.03),
-			TPPercentage:      getEnvAsFloat("TPPercentage", 0.7),
+			AviableTradeRatio: getEnvAsFloat("AVIABLE_TRADE_RATIO", 0.90),
+			Leverage:          getEnvAsInt("LEVERAGE", 5),
+			SLPercentage:      getEnvAsFloat("SL_PERCENTAGE", 0.03),
+			TPPercentage:      getEnvAsFloat("TP_PERCENTAGE", 0.7),
 		},
 	}
 
