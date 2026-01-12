@@ -81,7 +81,7 @@ func LoadConfig() *AppConfig {
 		},
 		Agent: AgentConfig{
 			AviableTradeRatio: getEnvAsFloat("AVIABLE_TRADE_RATIO", 0.90),
-			Leverage:          getEnvAsInt("LEVERAGE", 3),
+			Leverage:          getEnvAsInt("LEVERAGE", 5),
 			SLPercentage:      getEnvAsFloat("SL_PERCENTAGE", 0.03),
 			TPPercentage:      getEnvAsFloat("TP_PERCENTAGE", 0.7),
 		},
