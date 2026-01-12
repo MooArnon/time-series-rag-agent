@@ -174,7 +174,7 @@ You must interpret this value using the **"Inversion Rule"**:
 
 ### Task
 Analyze the charts and data.
-1. Apply the **Inversion Rule** to the Consensus %.
+1. Apply the **Inversion Rule** to the Consensus %%.
 2. Verify the pattern visually in Chart A.
 3. Output the JSON decision.
 `, currentTime, consensusPct, avgSlope, string(historicalJson))
