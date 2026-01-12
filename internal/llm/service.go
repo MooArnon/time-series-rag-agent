@@ -12,7 +12,6 @@ import (
 	"os"
 	"strings"
 	"time"
-	"time-series-rag-agent/config"
 
 	"time-series-rag-agent/internal/ai"
 )
@@ -69,8 +68,6 @@ func (s *LLMService) GenerateTradingPrompt(
 		Similarity      string `json:"similarity_score"` // <--- Added
 	}
 
-	cfg := config.LoadConfig()
-
 	var cleanData []HistoricalDetail
 	var slopes []float64
 
@@ -125,65 +122,62 @@ func (s *LLMService) GenerateTradingPrompt(
 
 	historicalJson, _ := json.MarshalIndent(cleanData, "", "  ")
 
-	// --- B. Build System Prompt (Exact Copy) ---
+	// --- B. Build System Message (The Expert Persona) ---
 	systemMessage := fmt.Sprintf(`
-You are an **Objective Quantitative Analyst AI**. 
-Your goal is to identify profitable trading opportunities by weighing statistical probability against price action.
+You are a **High-Frequency Quantitative Trader**. 
+Your goal is to capture market edge based on Historical Pattern Matching (RAG).
 
-INPUTS:
-1. **Chart A (Macro):** RAG Pattern Analysis (Line Chart).
-   Data Context: Normalized Market Vector. The numerical sequence provided is a Z-Score Normalized Log-Return Vector representing the market's "shape".
-2. **Chart B (Micro):** Live Price Action (Candlesticks).
-3. **Historical Match Details** The numeric data from Chart. (distance came duing search from pgvector)
+### THE CORE TRADING ALGORITHM:
 
-OUTPUT FORMAT:
-Output ONLY a valid JSON string (no markdown, no preamble).
+**1. STATISTICAL SIGNAL (The Primary Driver)**
+The input provides "Historical Trend Consensus" (percentage of matches that went UP).
+You must interpret this value using the **"Inversion Rule"**:
+- **BULLISH CASE:** If Consensus > 55%% → **Bias is LONG**.
+- **BEARISH CASE:** If Consensus < 45%% → **Bias is SHORT**. (e.g., 20%% Up = 80%% probability of Down).
+- **NEUTRAL CASE:** If Consensus is 45%%-55%% → **Bias is HOLD** (No statistical edge).
+
+**2. VISUAL CONFIRMATION (Chart A)**
+- Look at the "Black Line" (Current Price) vs the "Colored Lines" (History).
+- **Question:** Is the Black Line *behaving* like the history?
+- If the Black Line follows the path of the Colored Lines, **EXECUTE THE STATISTICAL BIAS**.
+- Do not worry about "exact" price matches. Look for **Shape** and **Direction** alignment.
+
+**3. SAFETY CHECK (Chart B)**
+- Only signal **HOLD** if you see an *immediate* disaster (e.g., Longing directly into a massive crash candle).
+- Standard market noise, small wicks, or consolidation are **NOT** reasons to Hold. 
+- **Guideline:** We prefer to take a trade and hit a Stop Loss than to miss a high-probability move.
+
+### OUTPUT FORMAT (STRICT JSON ONLY):
 {
-    "chart_a_analysis": "Does the Black Line generally follow the Colored Lines?",
-    "chart_b_analysis": "Is there a strong reversal pattern? Or just standard noise?",
-    "synthesis": "Weigh the evidence. Pattern vs. Price Action.",
+    "chart_a_analysis": "Describe the shape alignment. Does the black line follow the colored average?",
+    "chart_b_analysis": "Is there a specific reversal candle pattern preventing entry? If not, say 'Clean'.",
+    "synthesis": "Combine Stats (Direction) + Visuals (Timing). State the edge clearly.",
     "signal": "LONG" | "SHORT" | "HOLD",
     "confidence": 0 to 100
 }
-
-DECISION LOGIC (The "Opportunity" Framework):
-1. **Primary Driver (Chart A):** If the RAG Patterns show a clear direction (Consensus > 60%%), this is your primary signal. Trust the history.
-2. **The "Veto" Check (Chart B):** Only signal HOLD if Chart B shows a **MAJOR** contradiction (e.g., a massive rejection candle or volume spike against the trend).
-   - Do NOT hold just because of small wicks or low volatility.
-   - If Chart B is "messy" but not explicitly contradictory, **TRUST CHART A**.
-3. **Consensus Threshold:** You only need **60%%** statistical alignment to trigger a trade.
-4. **Bias:** Do not be paralyzed by perfection. If the odds are in our favor (>60%%), take the trade.
-
-The "Do Not Chase" Rule (Volatility Filter):
-Look at the last 1-3 candles in Chart B.
-- If you see a **Massive Vertical Move** (e.g., a giant red candle that is 3x bigger than the previous ones), **SIGNAL HOLD**.
-- Logic: The move has likely already happened. Entering now is "chasing" and risky.
-- We want to enter *before* the explosion or during a *pullback*, not *during* the crash.
-
-ENVIRONMENT :
-- The leverage will be set at %d
-- The stoploss will be set at every trade, it's 2 percent from the market price... 
-`, cfg.Agent.Leverage)
+`)
 
 	// --- C. Build User Message (The Evidence) ---
 	userContent := fmt.Sprintf(`
-### Market Context
+### Market Data
 - **Analysis Time:** %s
-- **Historical Trend Consensus:** %d/%d matches trended UP (%.1f%%).
-- **Average Future Slope:** %.6f
+- **Historical Trend Consensus (Probability of UP):** %.1f%% 
+- **Average Historical Slope:** %.6f
 
-### Historical Match Details (Numeric data from Chart A)
+### INTERPRETATION GUIDE:
+- **IF Consensus is < 45%%:** The history predicts a DROP. Check for **SHORT** entry.
+- **IF Consensus is > 55%%:** The history predicts a RALLY. Check for **LONG** entry.
+- **IF Consensus is 50%%:** No edge.
+
+### Historical Match Details (Chart A Data)
 %s
 
-### Visual Task
-Analyze the attached charts.
-- **Chart A** gives you the PROBABILITY.
-- **Chart B** gives you the TIMING.
-
-**Instruction:** If Chart A looks good (>60%% match) and Chart B is not a disaster, **SIGNAL THE TRADE**. 
-Do not signal HOLD unless you see a clear danger sign.
-`, currentTime, positiveTrends, len(slopes), consensusPct, avgSlope, string(historicalJson))
-
+### Task
+Analyze the charts and data.
+1. Apply the **Inversion Rule** to the Consensus %.
+2. Verify the pattern visually in Chart A.
+3. Output the JSON decision.
+`, currentTime, consensusPct, avgSlope, string(historicalJson))
 	// Encode Images
 	b64A, err := encodeImage(chartPathA)
 	if err != nil {
