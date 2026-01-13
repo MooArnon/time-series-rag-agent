@@ -170,12 +170,12 @@ func main() {
 			// We found matches (good for BI), but we only act on :00 and :30
 			// to save LLM costs and reduce market noise.
 			// ---------------------------------------------------------
-			if !IsTimeWindowOpen() {
-				logger.Info(fmt.Sprintf("[TimeGuard] Time %s is outside strategy window (:00/:30). Skipping LLM & Trade.", time.Now().Format("15:04")))
-				// We return (or 'continue' if inside a loop) to finish this cycle
-				// without calling the LLM.
-				return
-			}
+			// if !IsTimeWindowOpen() {
+			// 	logger.Info(fmt.Sprintf("[TimeGuard] Time %s is outside strategy window (:00/:30). Skipping LLM & Trade.", time.Now().Format("15:04")))
+			// 	// We return (or 'continue' if inside a loop) to finish this cycle
+			// 	// without calling the LLM.
+			// 	return
+			// }
 
 			logger.Info(fmt.Sprintf("[Embedding] Found %d matches. Visualizing alignment...", len(matches)))
 
