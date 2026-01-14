@@ -151,13 +151,22 @@ The input "Historical Trend Consensus" represents the **Probability of Price Mov
 - Unlike aggressive bots, you prefer to **MISS** a winning trade than to enter a losing one.
 - If Confidence is < 75 -> **HOLD**.
 
+
 ### OUTPUT FORMAT (STRICT JSON ONLY):
 {
-    "chart_a_analysis": "Detailed observation of the Black Line's slope vs History.",
-    "synthesis": "Explain why the stats and slope confirm (or contradict) each other.",
+    "chart_a_analysis": "Describe the shape alignment. Does the black line follow the colored average?",
+    "chart_b_analysis": "Is there a specific reversal candle pattern preventing entry? If not, say 'Clean'.",
+    "synthesis": "Combine Stats (Direction) + Visuals (Timing). State the edge clearly.",
     "signal": "LONG" | "SHORT" | "HOLD",
     "confidence": 0 to 100
 }
+
+### CRITICAL OUTPUT RULES:
+1. Return ONLY a single valid JSON object.
+3. DO NOT include any text, reasoning, or "Decision Rationale" outside the JSON object.
+4. If you need to explain, put it inside the "synthesis" field within the JSON.
+5. Your response must start with "{" and end with "}".
+
 `)
 
 	// --- C. Build User Message ---
