@@ -223,11 +223,12 @@ func main() {
 				return
 			}
 
+			tradeMsg := fmt.Sprintf(
+				"**SIDE:** %s\n**CONFIDENCE:** %d%%\n**REASON: %s**",
+				signal.Signal, signal.Confidence, signal.Synthesis,
+			)
+
 			if signal.Confidence >= signalConfidence {
-				tradeMsg := fmt.Sprintf(
-					"**SIDE:** %s\n**CONFIDENCE:** %d%%\n**REASON: %s**",
-					signal.Signal, signal.Confidence, signal.Synthesis,
-				)
 
 				if signal.Signal == "SHORT" || signal.Signal == "LONG" {
 					priceToOpen, err_conv := strconv.ParseFloat(event.Kline.Close, 64)
@@ -243,9 +244,10 @@ func main() {
 					}
 				}
 
-				// Sending Trade Alert (Candle Chart)
-				discord.NotifyPipeline(tradeMsg, fileCandle)
 			}
+
+			// Sending Trade Alert (Candle Chart)
+			discord.NotifyPipeline(tradeMsg, fileCandle)
 
 			// 3. Act
 			logger.Info(fmt.Sprintf("[LLM] SIGNAL: %s (Conf: %d%%)", signal.Signal, signal.Confidence))
