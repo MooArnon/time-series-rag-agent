@@ -224,7 +224,7 @@ func main() {
 			}
 
 			tradeMsg := fmt.Sprintf(
-				"**SIDE:** %s\n**CONFIDENCE:** %d%%\n**REASON: %s**",
+				"**SIDE:** %s\n**CONFIDENCE:** %d%%\n**REASON:** %s",
 				signal.Signal, signal.Confidence, signal.Synthesis,
 			)
 
@@ -248,6 +248,27 @@ func main() {
 
 			// Sending Trade Alert (Candle Chart)
 			discord.NotifyPipeline(tradeMsg, fileCandle)
+
+			discord.NotifyPipeline(
+				fmt.Sprintln("**ChartBState:** ", signal.ChartBState),
+				"",
+			)
+			discord.NotifyPipeline(
+				fmt.Sprintln("**CandleShape:** ", signal.CandleShape),
+				"",
+			)
+			discord.NotifyPipeline(
+				fmt.Sprintln("**TimingCheck:** ", signal.TimingCheck),
+				"",
+			)
+			discord.NotifyPipeline(
+				fmt.Sprintln("**MarketState:** ", signal.MarketState),
+				"",
+			)
+			discord.NotifyPipeline(
+				fmt.Sprintln("**DevilAdvocate:** ", signal.DevilAdvocate),
+				"",
+			)
 
 			// 3. Act
 			logger.Info(fmt.Sprintf("[LLM] SIGNAL: %s (Conf: %d%%)", signal.Signal, signal.Confidence))

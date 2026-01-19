@@ -35,7 +35,7 @@ func (d *DiscordClient) NotifyOrder(msg string, imagePath string) {
 
 // NotifyPipeline sends to the Pipeline Room
 func (d *DiscordClient) NotifyPipeline(msg string, imagePath string) {
-	d.send(d.PipelineWebhookURL, "**Pipeline...**\n"+msg, imagePath)
+	d.send(d.PipelineWebhookURL, msg, imagePath)
 }
 
 // send handles the Logic: Text Only vs Text + Image

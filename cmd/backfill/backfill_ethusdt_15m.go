@@ -19,7 +19,7 @@ const (
 	Symbol       = "ETHUSDT"
 	Interval     = "15m"
 	VectorWindow = 60
-	DaysToFetch  = 30 * 4 // How many days of history you want
+	DaysToFetch  = 30 // How many days of history you want
 )
 
 func main() {
