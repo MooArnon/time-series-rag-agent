@@ -250,23 +250,15 @@ func main() {
 			discord.NotifyPipeline(tradeMsg, fileCandle)
 
 			discord.NotifyPipeline(
-				fmt.Sprintln("**ChartBState:** ", signal.ChartBState),
+				fmt.Sprintln("**SetupTeir:** ", signal.SetupTeir),
 				"",
 			)
 			discord.NotifyPipeline(
-				fmt.Sprintln("**CandleShape:** ", signal.CandleShape),
+				fmt.Sprintln("**VisualQuality:** ", signal.VisualQuality),
 				"",
 			)
 			discord.NotifyPipeline(
-				fmt.Sprintln("**TimingCheck:** ", signal.TimingCheck),
-				"",
-			)
-			discord.NotifyPipeline(
-				fmt.Sprintln("**MarketState:** ", signal.MarketState),
-				"",
-			)
-			discord.NotifyPipeline(
-				fmt.Sprintln("**DevilAdvocate:** ", signal.DevilAdvocate),
+				fmt.Sprintln("**ChartBTrigger:** ", signal.ChartBTrigger),
 				"",
 			)
 
