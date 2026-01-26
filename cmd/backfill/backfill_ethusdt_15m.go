@@ -19,7 +19,8 @@ const (
 	Symbol       = "ETHUSDT"
 	Interval     = "15m"
 	VectorWindow = 60
-	DaysToFetch  = 30 // How many days of history you want
+	DaysToFetch  = 5
+	// DaysToFetch  = 365 * 5 // How many days of history you want
 )
 
 func main() {
@@ -27,7 +28,7 @@ func main() {
 	cfg := config.LoadConfig()
 	connString := fmt.Sprintf("postgres://%s:%s@%s:%d/%s",
 		cfg.Database.DBUser, cfg.Database.DBPassword, cfg.Database.DBHost, cfg.Database.DBPort, cfg.Database.DBName)
-
+	fmt.Print(connString)
 	db, err := database.NewPostgresDB(connString)
 	if err != nil {
 		log.Fatal(err)
