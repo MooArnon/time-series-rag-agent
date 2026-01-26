@@ -25,7 +25,7 @@ const (
 	Interval          = "15m"   // Binance string
 	IntervalSecs      = 60 * 15 // 15m = 60 * 15 // Used for math checks (1m = 60s)
 	VectorWindow      = 60      // N candles for the pattern
-	top_k             = 12
+	top_k             = 18
 	signalConfidence  = 70
 	AviableTradeRatio = 0.9
 )
