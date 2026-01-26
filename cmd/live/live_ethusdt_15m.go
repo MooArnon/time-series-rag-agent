@@ -26,7 +26,7 @@ const (
 	IntervalSecs      = 60 * 15 // 15m = 60 * 15 // Used for math checks (1m = 60s)
 	VectorWindow      = 60      // N candles for the pattern
 	top_k             = 18
-	signalConfidence  = 70
+	signalConfidence  = 30
 	AviableTradeRatio = 0.9
 )
 
@@ -244,6 +244,10 @@ func main() {
 					}
 				}
 
+			} else {
+				tradeMsg = fmt.Sprintf("%s\n**NOTE:** Signal confidence below threshold (%d%% < %d%%). No trade executed.",
+					tradeMsg, signal.Confidence, signalConfidence)
+				logger.Info("[Signal] Confidence below threshold. No trade executed.")
 			}
 
 			// Sending Trade Alert (Candle Chart)
