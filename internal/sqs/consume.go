@@ -48,6 +48,7 @@ func ConsumeTradingLogs(connString string) {
 
 			// 4. Parse the JSON
 			var logData database.TradingLog
+			fmt.Print(*message.Body)
 			err := json.Unmarshal([]byte(*message.Body), &logData)
 			if err != nil {
 				log.Printf("failed to unmarshal JSON: %v", err)
@@ -57,7 +58,7 @@ func ConsumeTradingLogs(connString string) {
 			// --- YOUR BUSINESS LOGIC HERE ---
 			fmt.Printf("Processing Signal: %s\nReason: %s\n", logData.Signal, logData.Reason)
 			fmt.Printf("Processing CandleKey: %s\nCandleKey: %s\n", logData.CandleKey, logData.CandleKey)
-			fmt.Printf("Processing Symbol: %s\nRecorded_at: %s\n", logData.Symbol, logData.RecordedAt)
+			fmt.Printf("Processing Symbol: %s\nRecordedAt: %s\n", logData.Symbol, logData.RecordedAt)
 
 			errIngest := db.IngestTradingLog(context.TODO(), logData)
 			if errIngest != nil {
