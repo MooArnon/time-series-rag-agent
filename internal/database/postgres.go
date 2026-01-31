@@ -17,12 +17,18 @@ type PostgresDB struct {
 }
 
 type TradingLog struct {
-	Signal     string
-	Reason     string
-	CandleKey  string
-	ChartKey   string
-	Symbol     string
-	RecordedAt string
+	// Tag matches "signal" in your JSON
+	Signal string `json:"signal"`
+	// Tag matches "reason" in your JSON
+	Reason string `json:"reason"`
+	// Tag matches "candleKey" in your JSON
+	CandleKey string `json:"candleKey"`
+	// Tag matches "chartKey" in your JSON
+	ChartKey string `json:"chartKey"`
+	// Tag matches "symbol" in your JSON
+	Symbol string `json:"symbol"`
+	// Tag matches "recorded_at" in your JSON
+	RecordedAt string `json:"recorded_at"`
 }
 
 func NewPostgresDB(connString string) (*PostgresDB, error) {
