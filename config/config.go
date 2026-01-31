@@ -18,6 +18,7 @@ type AppConfig struct {
 	OpenRouter OpenRouterConfig
 	Discord    DiscordConfig
 	Agent      AgentConfig
+	Que        QueConfig
 }
 
 type AgentConfig struct {
@@ -25,6 +26,10 @@ type AgentConfig struct {
 	Leverage          int
 	SLPercentage      float64
 	TPPercentage      float64
+}
+
+type QueConfig struct {
+	QueUrl string
 }
 
 type AwsSecretData struct {
@@ -84,6 +89,9 @@ func LoadConfig() *AppConfig {
 			Leverage:          getEnvAsInt("LEVERAGE", 5),
 			SLPercentage:      getEnvAsFloat("SL_PERCENTAGE", 0.03),
 			TPPercentage:      getEnvAsFloat("TP_PERCENTAGE", 0.7),
+		},
+		Que: QueConfig{
+			QueUrl: getEnv("SQS_URL", ""),
 		},
 	}
 
