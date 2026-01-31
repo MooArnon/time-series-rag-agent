@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"strconv"
@@ -15,6 +16,8 @@ import (
 	"time-series-rag-agent/internal/llm"
 	"time-series-rag-agent/internal/notifier"
 	"time-series-rag-agent/internal/plot"
+	"time-series-rag-agent/internal/s3"
+	"time-series-rag-agent/internal/sqs"
 	"time-series-rag-agent/internal/trade"
 	"time-series-rag-agent/pkg"
 )
@@ -249,6 +252,30 @@ func main() {
 					tradeMsg, signal.Confidence, signalConfidence)
 				logger.Info("[Signal] Confidence below threshold. No trade executed.")
 			}
+
+			logsContext, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			defer cancel()
+			candleKey, err := s3.UploadImageToS3(logsContext, "candle.png")
+			chartKey, err := s3.UploadImageToS3(logsContext, "chart.png")
+
+			messageQue := map[string]string{
+				"signal":      signal.Signal,
+				"reason":      signal.Synthesis,
+				"candleKey":   candleKey, // e.g., "image/candle/2026/01/31/..."
+				"chartKey":    chartKey,
+				"symbol":      Symbol,
+				"recorded_at": fmt.Sprint(event.Kline.StartTime / 1000),
+			}
+
+			messageQueJsonData, err := json.Marshal(messageQue)
+			if err != nil {
+				fmt.Println("Error marshaling:", err)
+				return
+			}
+			messageQueString := string(messageQueJsonData)
+
+			// Now call your SQS function
+			sqs.PutTradingLog(messageQueString)
 
 			// Sending Trade Alert (Candle Chart)
 			discord.NotifyPipeline(tradeMsg, fileCandle)
