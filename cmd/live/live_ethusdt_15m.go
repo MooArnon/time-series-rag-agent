@@ -101,6 +101,7 @@ func main() {
 		// ---  HOT PATH: Candle Just Closed ---
 		// event.Kline.IsFinal is True
 		start := time.Now()
+		startEpoch := time.Now().Unix()
 
 		liveCandle := ai.InputData{
 			Time:  event.Kline.StartTime / 1000,
@@ -264,7 +265,7 @@ func main() {
 				"candleKey":   candleKey, // e.g., "image/candle/2026/01/31/..."
 				"chartKey":    chartKey,
 				"symbol":      Symbol,
-				"recorded_at": fmt.Sprint(event.Kline.StartTime / 1000),
+				"recorded_at": fmt.Sprint(startEpoch),
 			}
 
 			messageQueJsonData, err := json.Marshal(messageQue)
