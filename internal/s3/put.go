@@ -16,8 +16,8 @@ const (
 )
 
 // UploadImageToS3 takes a local file path and uploads it with a dynamic timestamp name
-func UploadImageToS3(ctx context.Context, localFilePath string) (string, error) {
-	key := GetS3Path()
+func UploadImageToS3(ctx context.Context, localFilePath string, chartType string) (string, error) {
+	key := GetS3Path(chartType)
 
 	// 1. Initialize AWS Config
 	cfg, err := config.LoadDefaultConfig(ctx)
@@ -48,12 +48,13 @@ func UploadImageToS3(ctx context.Context, localFilePath string) (string, error) 
 	return key, err
 }
 
-func GetS3Path() (key string) {
+func GetS3Path(chatType string) (key string) {
 	now := time.Now()
+	prefixChat := fmt.Sprintf("image/%s/2006/01/02/", chatType)
 
 	// 2. Format the prefix: image/candle/YYYY/MM/DD/
 	// Note: We strip "s3://" as the SDK expects the path starting from the root of the bucket
-	prefix := now.Format("image/candle/2006/01/02/")
+	prefix := now.Format(prefixChat)
 
 	// 3. Format the filename: YYYYMMDD_HHMMSS.png
 	fileName := now.Format("20060102_150405.png")
