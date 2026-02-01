@@ -256,8 +256,8 @@ func main() {
 
 			logsContext, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 			defer cancel()
-			candleKey, err := s3.UploadImageToS3(logsContext, "candle.png")
-			chartKey, err := s3.UploadImageToS3(logsContext, "chart.png")
+			candleKey, err := s3.UploadImageToS3(logsContext, "candle.png", "candle")
+			chartKey, err := s3.UploadImageToS3(logsContext, "chart.png", "chart")
 
 			messageQue := map[string]string{
 				"signal":      signal.Signal,
