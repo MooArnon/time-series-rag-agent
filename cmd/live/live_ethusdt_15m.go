@@ -161,9 +161,17 @@ func main() {
 			return // Safer to do nothing if API fails
 		}
 
+		// Check if having position
 		if hasPos {
 			logger.Info(fmt.Sprintf("[Contract] Skip... In Trade (%s). Skipping Analysis.", Symbol))
 			return // <--- NOW SAFE: Ingestion already started above!
+		}
+		// Check for upper roi
+		pnl, roi, err := trade.CalculateDailyROI(binanceClient)
+		logger.Info(fmt.Sprintf("ROI: %.3f | PnL: %f.3", roi, pnl))
+		if roi >= cfg.Agent.StopROI {
+			logger.Info(fmt.Sprintf("Current ROI is %f ,which is higher than %f. STOP PIPELINE", roi, cfg.Agent.StopROI))
+			return
 		}
 
 		matches, err := pg.SearchPatterns(context.Background(), feature.Embedding, top_k, Symbol)
