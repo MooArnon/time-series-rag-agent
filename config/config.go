@@ -26,6 +26,7 @@ type AgentConfig struct {
 	Leverage          int
 	SLPercentage      float64
 	TPPercentage      float64
+	StopROI           float64
 }
 
 type QueConfig struct {
@@ -89,6 +90,7 @@ func LoadConfig() *AppConfig {
 			Leverage:          getEnvAsInt("LEVERAGE", 5),
 			SLPercentage:      getEnvAsFloat("SL_PERCENTAGE", 0.03),
 			TPPercentage:      getEnvAsFloat("TP_PERCENTAGE", 0.7),
+			StopROI:           getEnvAsFloat("STOP_ROI", 3.5),
 		},
 		Que: QueConfig{
 			QueUrl: getEnv("SQS_URL", ""),
