@@ -267,9 +267,11 @@ func main() {
 			candleKey, err := s3.UploadImageToS3(logsContext, "candle.png", "candle")
 			chartKey, err := s3.UploadImageToS3(logsContext, "chart.png", "chart")
 
+			reason := fmt.Sprintf("Reason: %s, SetupTeir: %s, VisualQuality: %s, ChartBTrigger: %s", signal.Synthesis, signal.SetupTeir, signal.VisualQuality, signal.ChartBTrigger)
+
 			messageQue := map[string]string{
 				"signal":      signal.Signal,
-				"reason":      signal.Synthesis,
+				"reason":      reason,
 				"candleKey":   candleKey, // e.g., "image/candle/2026/01/31/..."
 				"chartKey":    chartKey,
 				"symbol":      Symbol,
