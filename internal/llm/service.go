@@ -342,6 +342,7 @@ func (s *LLMService) GenerateSignal(ctx context.Context, systemPrompt, userText,
 	// Safely extract content
 	choices, ok := result["choices"].([]interface{})
 	if !ok || len(choices) == 0 {
+		fmt.Println("Error: ", result)
 		return nil, fmt.Errorf("invalid response format from LLM")
 	}
 	firstChoice := choices[0].(map[string]interface{})
