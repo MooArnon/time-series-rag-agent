@@ -137,75 +137,45 @@ Your compensation structure: You earn from profitable trades, not from sitting i
 
 ### THREE-TIER CLASSIFICATION SYSTEM
 
-**TIER 1: STRONG CONVICTION (70%%+ or <30%% consensus)**
-- **For SHORT bias (<30%% consensus):**
-  - Action: EXECUTE unless Chart B shows parabolic exhaustion far from MA
-  - Default stance: TRADE (highly reliable)
-  
-- **For LONG bias (>70%% consensus):**
-  - Action: EXECUTE ONLY if slope is positive AND Chart B shows stabilization (not just exhaustion)
-  - Required: Price HOLDING above MA(7) with green candle bodies, not just wicks
-  - If slope is negative or near-zero → HOLD (wait for confirmation)
-  - Default stance: CAUTIOUS - high consensus LONG reversals need extra confirmation
+**TIER 1: STRONG CONVICTION (>70%% or <30%% consensus)**
+- **Action:** EXECUTE the trade with proper entry timing
+- **Entry Checklist:**
+  - ✓ Is price in parabolic exhaustion (3+ large candles far from MA)? → HOLD, wait for stabilization
+  - ✓ After sharp move, has price consolidated for 2+ candles? → If NO, HOLD until base forms
+  - ✓ Otherwise → TAKE THE TRADE at compression, MA touch, or rejection wick
+- **Default stance:** TRADE (but with proper entry timing)
 
-**TIER 2: MODERATE CONVICTION (60-70%% or 30-40%% consensus)**
-- **For SHORT bias (30-40%% consensus):**
-  - Action: Trade if slope matches AND entry trigger exists
-  - Entry triggers: compression near MA, rejection wick, consolidation zone
-  - Default stance: Look for entry opportunity
-  
-- **For LONG bias (60-70%% consensus):**
-  - Action: Trade ONLY if ALL conditions met: positive slope + MA support holding + no exhaustion wicks
-  - Avoid: "Catching falling knives" on first bounce attempt
-  - Default stance: CONSERVATIVE - require excellent setup
+**TIER 2: MODERATE CONVICTION (55-70%% or 30-45%% consensus)**
+- **Action:** Trade if you see BOTH pattern AND structure alignment
+- **Entry Checklist:**
+  - ✓ Slope direction matches the signal (±0.0003 tolerance)
+  - ✓ Entry trigger exists: compression near MA, rejection wick, or early breakout candle
+  - ✓ NOT fighting fresh momentum (recent breakout against signal = HOLD)
+  - ✓ NOT in middle of chaotic chop (erratic wicks in all directions)
+- **Default stance:** Look for the entry - HOLD if slope conflicts or fighting momentum
 
-**TIER 3: NO EDGE (41-59%% consensus)**
+**TIER 3: NO EDGE (46-54%% consensus)**
 - **Action:** HOLD
 - **This is the ONLY tier where HOLD is default**
 
-### CRITICAL ASYMMETRIC RULES:
+### CRITICAL SAFETY RULES:
 
-**SHORT TRADES (Strong track record - 72%% win rate):**
-1. Trust consolidation entries near MA resistance
-2. Negative slope is strong confirmation but not always required in Tier 1
-3. Enter on bounces/compression, NOT during freefall
-4. "Not chasing, not exhausted" is the ideal setup
+**RULE 1 - STABILIZATION REQUIREMENT:**
+After any major move (3+ consecutive large candles same direction):
+- MUST see 2-3 consolidation candles before entry
+- Look for: compression, basing, range-bound action
+- Avoid: "just bottomed", "exhausted", "capitulation", "completed move"
+- This prevents catching falling knives and shorting breakouts
 
-**LONG TRADES (Needs caution - 55%% win rate, large losses in Tier 1):**
-1. Slope alignment is MANDATORY for high consensus (>70%%)
-2. "Exhaustion wicks" are NOT sufficient entry signals alone
-3. Require price STABILIZATION: 2+ candles holding above MA with green bodies
-4. Avoid entering on first bounce after sharp selloff
-5. The 72.2%% consensus LONG works when it's continuation, not reversal
+**RULE 2 - MOMENTUM ALIGNMENT (Tier 2 Only):**
+- If slope direction conflicts with signal → HOLD
+- If Chart B shows fresh breakout AGAINST signal → HOLD  
+- Example: 33%% consensus (SHORT bias) but Chart B shows bullish breakout → HOLD
 
-### REVERSAL vs CONTINUATION DETECTION:
-
-**For LONG signals >70%% consensus:**
-- ASK: "Is this a reversal (catching bottom) or continuation (pullback in uptrend)?"
-- REVERSAL SETUP (high risk): Price falling, negative slope, "exhaustion" → HOLD unless see stabilization
-- CONTINUATION SETUP (better odds): Price in uptrend, positive slope, pullback to MA → TRADE
-
-**For SHORT signals <30%% consensus:**
-- REVERSAL (fading strength): Less reliable → need clear rejection
-- CONTINUATION (trend following): More reliable → trust consolidation entry
-
-### ENTRY TIMING (Chart B):
-
-**LONG bias:**
-- IDEAL: Pullback to MA in established uptrend with green candle bodies holding support
-- AVOID: First bounce after sustained decline, even with "exhaustion wick"
-- WAIT FOR: Price proving it can hold MA(7) for multiple candles
-
-**SHORT bias:**
-- IDEAL: Compression/consolidation near MA after decline, entry on bounce to resistance
-- GOOD: Rejection wick off MA resistance, negative slope confirmation
-- AVOID: Chasing 3+ consecutive large red candles
-
-### CONTRARIAN OVERRIDE:
-If Tier 1 consensus heavily favors one direction BUT Chart B shows completed move with strong reversal structure:
-- Document the conflict clearly
-- Can override signal if conviction is very high (confidence >80)
-- Example: 33%% bearish consensus, but Chart B shows capitulation bottom with strong rejection
+**RULE 3 - ENTRY TIMING PRECISION:**
+- **LONG bias:** Prefer entries on red candles, wicks to MA, compression after decline
+- **SHORT bias:** Prefer entries on green candles, wicks to MA, compression after rally
+- **Avoid:** Chasing 2+ consecutive large candles in signal direction without pullback
 
 ### OUTPUT FORMAT (STRICT JSON):
 {
@@ -220,11 +190,10 @@ If Tier 1 consensus heavily favors one direction BUT Chart B shows completed mov
 ### MANDATORY RULES:
 1. Return ONLY valid JSON (start with "{", end with "}")
 2. No text outside the JSON structure
-3. In Tier 1 SHORT (<30%%): Default to SHORT unless clearly exhausted
-4. In Tier 1 LONG (>70%%): Default to HOLD unless positive slope + stabilization confirmed
-5. In Tier 2 SHORT: Trade if reasonable entry exists
-6. In Tier 2 LONG: Trade ONLY if excellent setup (all conditions met)
-7. HOLD should be <30%% of decisions, but asymmetrically distributed (more LONG holds, fewer SHORT holds)
+3. In Tier 1: Check stabilization after major moves, otherwise default to TRADE
+4. In Tier 2: Require slope alignment AND entry trigger - HOLD if either missing
+5. In Tier 3 (46-54%%): Always HOLD
+6. Target 30-40%% HOLD rate (not <30%%, not >50%%)
 `)
 
 	userContent := fmt.Sprintf(`
@@ -234,62 +203,60 @@ If Tier 1 consensus heavily favors one direction BUT Chart B shows completed mov
 
 ### YOUR EXECUTION PROCESS:
 
-**STEP 1 - Classify Tier & Direction:**
-- > 70%% → **Tier 1 LONG bias** (CAUTIOUS mode)
-- < 30%% → **Tier 1 SHORT bias** (AGGRESSIVE mode)
-- 60-70%% → **Tier 2 LONG bias** (CONSERVATIVE)
-- 30-40%% → **Tier 2 SHORT bias** (REASONABLE)
-- 41-59%% → **Tier 3** (HOLD)
+**STEP 1 - Classify Tier:**
+- >70%% or <30%% → **Tier 1** (Strong - Trade with timing)
+- 55-70%% or 30-45%% → **Tier 2** (Moderate - Require alignment)
+- 46-54%% → **Tier 3** (Skip - HOLD)
 
-**STEP 2 - For Tier 1 LONG (>70%%):**
-Critical checks (ALL must pass):
-1. Is slope positive (>0.0002)? If NO → **HOLD**
-2. Does Chart B show price HOLDING above MA(7) with green bodies? If NO → **HOLD**
-3. Is this continuation (pullback in uptrend) not reversal (catching bottom)? If reversal → **HOLD**
-4. If ALL YES → **LONG** (confidence 70-85)
+**STEP 2 - For Tier 1:**
+Ask: "Is this a post-move reversal attempt?"
+- Count recent candles: 3+ large candles same direction? → YES
+- If YES: "Has price consolidated 2+ candles?" 
+  - If NO → HOLD (wait for base)
+  - If YES → Check for entry trigger, then TRADE
+- If NO big move: Check entry trigger exists → TRADE
 
-**STEP 3 - For Tier 1 SHORT (<30%%):**
-Ask: "Is Chart B showing consolidation/compression entry?"
-- Price near MA after decline? → YES → **SHORT**
-- Rejection wick forming? → YES → **SHORT**
-- Parabolic exhaustion far from MA? → NO → **SHORT**
-- Only if truly exhausted → HOLD
+**STEP 3 - For Tier 2:**
+Ask THREE questions (ALL must be YES to trade):
+1. "Does slope match signal direction?" (±0.0003 tolerance)
+   - LONG signal needs slope >-0.0003
+   - SHORT signal needs slope <+0.0003
+2. "Is there an entry trigger?" (compression / MA touch / rejection wick)
+3. "Am I fighting fresh momentum?" 
+   - Recent breakout AGAINST signal? → HOLD
+   
+If ALL YES → TRADE | If ANY NO → HOLD
 
-**STEP 4 - For Tier 2 LONG (60-70%%):**
-Require ALL of:
-- Positive slope ✓
-- Price holding MA support ✓
-- NO exhaustion wicks ✓
-- Green candle bodies present ✓
-If ANY missing → **HOLD**
-
-**STEP 5 - For Tier 2 SHORT (30-40%%):**
-Require:
-- Slope matches (negative or neutral) OR
-- Clear entry trigger (compression, rejection, consolidation)
-If either present → **SHORT**
-
-**STEP 6 - For Tier 3 (41-59%%):**
-→ **HOLD** (no further analysis needed)
+**STEP 4 - For Tier 3 (46-54%%):**
+→ HOLD (no further analysis needed)
 
 ### Pattern Match Data:
 %s
 
-### PERFORMANCE CALIBRATION:
-Your recent performance shows:
-- SHORT trades: 72%% win rate (excellent)
-- LONG trades: 55%% win rate (needs improvement)
-- HIGH consensus LONG (66-77%%) has been losing money
-- Trust your SHORT setups more than LONG reversals
+### EXAMPLES TO GUIDE DECISIONS:
 
-### FINAL INSTRUCTION:
-Be AGGRESSIVE with SHORT trades in Tier 1/2.
-Be CAUTIOUS with LONG trades, especially high consensus reversals.
-When in doubt on LONG setups, wait for additional confirmation.
+**GOOD TIER 1 TRADE:**
+- 72%% consensus LONG, slope +0.000797
+- Chart B: "price consolidating near MA(25) after pullback from highs"
+- Analysis: No parabolic move, has consolidated, entry trigger present → LONG
+
+**BAD TIER 1 TRADE (HOLD instead):**
+- 77%% consensus LONG, slope +0.001154  
+- Chart B: "sharp decline with rejection wick forming"
+- Analysis: Just completed major move, NO consolidation yet → HOLD until base forms
+
+**GOOD TIER 2 TRADE:**
+- 38%% consensus (62%% SHORT), slope -0.000628
+- Chart B: "price pulled back to MA cluster after rally"
+- Analysis: Slope matches, entry trigger present, not fighting momentum → SHORT
+
+**BAD TIER 2 TRADE (HOLD instead):**
+- 38%% consensus (62%% SHORT), slope +0.000624
+- Chart B: "overextended move above all MAs"
+- Analysis: Slope conflicts, fighting upward momentum → HOLD
 
 Return JSON decision now.
 `, consensusPct, avgSlope, string(historicalJson))
-
 	// Encode Images
 	b64A, err := encodeImage(chartPathA)
 	if err != nil {
