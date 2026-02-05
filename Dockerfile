@@ -14,6 +14,7 @@ COPY . .
 # -o main: output file name
 # ./cmd/live/live_ethusdt_15m.go: path to your specific main file
 RUN go build -o live_ethusdt_15m ./cmd/live/live_ethusdt_15m.go
+RUN go build -o consume_que ./cmd/consume_que/main.go
 
 # --- Stage 2: Runner (Production Image) ---
 FROM alpine:latest
@@ -25,6 +26,7 @@ WORKDIR /root/
 
 # Copy ONLY the binary from the builder stage
 COPY --from=builder /app/live_ethusdt_15m .
+COPY --from=builder /app/consume_que .
 
 # Copy .env if you still use it (though AWS Secrets Manager is better)
 # COPY .env . 
