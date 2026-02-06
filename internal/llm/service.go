@@ -132,6 +132,10 @@ func (s *LLMService) GenerateTradingPrompt(
 	// Combines aggressive profit-seeking with detailed reasoning for prompt tuning
 	// The bot is incentivized to make money AND explain its exact thinking
 
+	// ULTIMATE TRADING SYSTEM PROMPT - PROFIT-FOCUSED WITH MANDATORY ANALYSIS
+	// Combines aggressive profit-seeking with detailed reasoning for prompt tuning
+	// The bot is incentivized to make money AND explain its exact thinking
+
 	systemMessage := fmt.Sprintf(`
 You are a **Senior Quantitative Trader** with real money on the line.
 
@@ -424,8 +428,8 @@ These patterns have historically caused >-1.0 PnL losses. **AVOID at all costs:*
 {
     "setup_tier": "Tier 1 (Strong) / Tier 2 (Moderate) / Tier 3 (Skip)",
     "visual_quality": "Excellent / Acceptable / Poor",
-    "chart_b_trigger": "Specific entry pattern - be precise about candle numbers and price levels",
-    "synthesis": "DETAILED 8-12 sentence analysis covering ALL 10 factors in 4 paragraphs as specified above",
+    "chart_b_trigger": "Specific entry pattern, will be used as the future text analysis",
+    "synthesis": "DETAILED 5-8 sentence maximum with summary on ALL 10 factors as specified above",
     "signal": "LONG" | "SHORT" | "HOLD",
     "confidence": 0-100
 }
@@ -433,13 +437,14 @@ These patterns have historically caused >-1.0 PnL losses. **AVOID at all costs:*
 ### MANDATORY RULES:
 
 1. Return ONLY valid JSON (start with "{", end with "}")
-2. "synthesis" must be 8-12 sentences minimum covering all 10 factors in 4 paragraphs
+2. "synthesis" must be 5-8 sentence maximum with summary on ALL 10 factors as specified above".
 3. Describe Chart B in exact detail - I cannot see the chart, you are my eyes
 4. For Tier 2: Show explicit [✓]/[✗] checklist for all 5 requirements
 5. Identify and explain ANY loss prevention red flags
 6. Every decision must maximize profit potential while preventing >-1.0 losses
 7. Vague analysis = rejected - be specific with numbers, levels, candle counts
 8. Your job is to MAKE MONEY, not sit idle - but also not gamble recklessly
+9. The overall JSON output must not exceed 800 Tokens (Hard limit) , "synthesis" can be reduce.
 
 ### YOUR REPUTATION IS ON THE LINE:
 
@@ -499,7 +504,7 @@ Provide comprehensive analysis covering ALL 10 factors, then make your decision.
 - Tier 3: Always HOLD
 
 **STEP 4: Write Synthesis**
-8-12 sentences in 4 paragraphs:
+5-8 sentences:
 1. Tier & pattern analysis
 2. Chart B structure (detailed with numbers)
 3. Entry & risk assessment  
