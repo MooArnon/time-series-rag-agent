@@ -123,6 +123,9 @@ func (s *LLMService) GenerateTradingPrompt(
 
 	historicalJson, _ := json.MarshalIndent(cleanData, "", "  ")
 
+	// OPTIMIZED PROMPT - Based on analysis of trading_optimization_report.pdf and opportunity_loss_report.pdf
+	// Changes marked with [OPT-xx] comments
+
 	systemMessage := fmt.Sprintf(`
 You are a **Senior Quantitative Trader** analyzing Binance Futures.
 
@@ -194,10 +197,21 @@ You are a **Senior Quantitative Trader** analyzing Binance Futures.
 - The biggest LONG wins had MULTIPLE green candles holding, never single-candle entries
 - Single exhaustion wick alone = HOLD
 
-**[TRAP F] POST-RALLY DISTRIBUTION (NEW):**
-- LONG after 3+ large green candles with consolidation near round-number resistance or recent high = distribution risk
-- If price rallied 50+ points in last 5 candles and is now consolidating → treat as distribution, not continuation → HOLD for LONG
+**[TRAP F] POST-RALLY DISTRIBUTION:**
+- LONG after 3+ large green candles with consolidation near resistance = distribution risk
+- If price rallied 50+ points in last 5 candles and is now consolidating → HOLD for LONG
 - Price ABOVE MA(7) after parabolic move ≠ "support at MA(7)" — it's exhaustion
+
+**[TRAP G] CONTRARIAN LONG AGAINST STRONG SHORT CONSENSUS (NEW):**
+- When consensus is <32%% (strong SHORT / Tier 1 SHORT zone), do NOT go LONG
+- Even if Chart B shows "bottoming" or "reversal" candles, the statistical edge heavily favors SHORT
+- A few green candles after decline ≠ reversal when 75%%+ of patterns predict DOWN
+- Exception: ONLY if price has ALREADY completed 80%%+ of the predicted move AND shows 5+ green candles above rising MA(7)
+
+**[TRAP H] REPEATED ENTRY AFTER STOP-LOSS (NEW):**
+- If the same setup type (same tier, same direction, similar consensus) just resulted in a stop-loss within the last 2-3 intervals, treat next occurrence with EXTRA skepticism
+- Require HIGHER quality confirmation: upgrade from "Acceptable" to "Excellent" visual quality threshold
+- Market conditions that stopped you out likely persist — do not re-enter identical setup immediately
 
 ---
 
@@ -207,7 +221,14 @@ When consensus is 44-55%% (Tier 3) BUT Chart B shows:
 - Price far below ALL MAs with 4+ consecutive red candles (extreme bearish), OR
 - Bearish engulfing / rejection wick after parabolic extension above all MAs
 → May SHORT with confidence capped at 55, tier labeled "Tier 3 (Chart B Override)"
-This applies to SHORT only. Never override Tier 3 for LONG signals.
+
+**[OPT] EXPANDED: Also when consensus suggests LONG (55-61%%) but Chart B shows:**
+- Price firmly BELOW declining MA(7) with 3+ red candles and NO stabilization
+- Active downtrend structure contradicting LONG pattern signal
+→ May SHORT with confidence capped at 55, tier labeled "Tier 2 (Chart B Inversion)"
+This captures missed SHORT opportunities where LONG consensus was wrong.
+
+This applies to SHORT only. Never override for LONG signals.
 
 ---
 
@@ -217,7 +238,7 @@ This applies to SHORT only. Never override Tier 3 for LONG signals.
 1. Slope check (LONG >-0.0002 | SHORT < -0.0005)
 2. Stabilization met if needed
 3. No Chart B veto
-4. No trap conditions triggered
+4. No trap conditions triggered (A-H)
 → TRADE
 
 **TIER 2 (ALL must pass):**
@@ -226,10 +247,10 @@ This applies to SHORT only. Never override Tier 3 for LONG signals.
 3. Entry trigger present
 4. Not fighting momentum (no 3+ candles against signal)
 5. No Chart B veto
-6. No trap conditions triggered
+6. No trap conditions triggered (A-H)
 → ALL pass: TRADE | ANY fail: HOLD
 
-**TIER 3:** HOLD (unless Chart B Override for SHORT)
+**TIER 3:** HOLD (unless Chart B Override or Chart B Inversion for SHORT)
 
 ---
 
@@ -242,6 +263,8 @@ This applies to SHORT only. Never override Tier 3 for LONG signals.
 - Tier 1 SHORT with slope > -0.0005
 - LONG after 3+ green candles near resistance (distribution)
 - First bounce LONG with only 1 green candle after sell-off
+- Contrarian LONG when consensus < 32%% (strong SHORT zone)
+- Re-entering same failed setup without upgraded confirmation
 
 ---
 
@@ -259,18 +282,18 @@ This applies to SHORT only. Never override Tier 3 for LONG signals.
 1. Return ONLY valid JSON (start with "{", end with "}")
 2. Max ~600 tokens total output
 3. Describe Chart B with exact numbers
-4. Check ALL 6 trap conditions (A-F) before every signal
+4. Check ALL trap conditions (A-H) before every signal
 `)
 	userContent := fmt.Sprintf(`
 ### MARKET SNAPSHOT
 - **Consensus (Prob Up):** %.1f%%%%
 - **Slope:** %.6f
 
-### TASK: Analyze structure, check all 6 trap conditions (A-F), return JSON.
+### TASK: Analyze structure, check all trap conditions (A-H), return JSON.
 
 **STEP 1:** Classify tier
 **STEP 2:** Analyze Chart B (detailed with numbers)
-**STEP 3:** Check traps A-F (list each)
+**STEP 3:** Check traps A-H (list each)
 **STEP 4:** Decision per rules
 **STEP 5:** Write synthesis
 
@@ -279,7 +302,6 @@ This applies to SHORT only. Never override Tier 3 for LONG signals.
 
 Return JSON now.
 `, consensusPct, avgSlope, string(historicalJson))
-
 	// Encode Images
 	b64A, err := encodeImage(chartPathA)
 	if err != nil {
