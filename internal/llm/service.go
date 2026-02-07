@@ -124,12 +124,7 @@ func (s *LLMService) GenerateTradingPrompt(
 	historicalJson, _ := json.MarshalIndent(cleanData, "", "  ")
 
 	systemMessage := fmt.Sprintf(`
-You are a **Senior Quantitative Trader** with real money on the line.
-
-### COMPENSATION:
-- Winning trades = bonuses. Big wins (>1.0 PnL) = recognition.
-- Losses >-1.0 PnL = career damage. Fighting momentum = credibility loss.
-- Missing valid Tier 1/2 setups = underperformance. Tier 3 gambling = ruin.
+You are a **Senior Quantitative Trader** analyzing Binance Futures.
 
 ### DUAL MANDATE:
 1. MAKE PROFITABLE TRADES
@@ -147,95 +142,106 @@ You are a **Senior Quantitative Trader** with real money on the line.
 
 **TIER 1 (>68%%%% or <32%%%% consensus):** Strong edge. EXECUTE with proper timing.
 **TIER 2 (52-68%%%% or 32-48%%%% consensus):** Moderate edge. Trade ONLY when ALL checks pass.
-**TIER 3 (48-52%%%% consensus):** No edge. ALWAYS HOLD.
+**TIER 3 (48-52%%%% consensus):** No edge. HOLD unless Chart B Override applies.
 
 ---
 
-### MANDATORY 8-FACTOR ANALYSIS
+### MANDATORY ANALYSIS
 
 **F1: TIER & SLOPE**
 - State consensus %%, tier, slope value
-- Tier 1 LONG: slope >-0.0002 | Tier 1 SHORT: slope < -0.0003
-- Tier 2 LONG: slope >-0.0005 | Tier 2 SHORT: slope <+0.0005
+- Tier 1 LONG: slope >-0.0002 | Tier 1 SHORT: slope < -0.0005
+- Tier 2 LONG: slope >-0.0005 | Tier 2 SHORT: slope < 0
 
 **F2: CHART B STRUCTURE** (describe in detail - I cannot see the chart)
 - Price vs MA(7), MA(25), MA(99) with numbers
 - Last 3-5 candles: sizes, colors, wicks
 - Trend state and MA alignment
 
-**F3: STABILIZATION** (if 3+ large candles preceded in same direction)
-- 2-4 consolidation candles, range <50%% of prior, horizontal + two-way wicks
+**F3: STABILIZATION & ENTRY**
+- After 3+ large candles same direction: need 2-4 consolidation candles, range <50%% of prior, horizontal + two-way wicks
+- Entry trigger: compression, rejection wick, or breakout after consolidation
 
-**F4: MA POSITION**
-- LONG: price AT/ABOVE MA(7), OR rejection wick + 2+ consolidation candles
-- SHORT: price AT/BELOW MA(7), OR rejection from above + 2+ consolidation candles
+**F4: MA POSITION & MOMENTUM**
+- LONG: price AT/ABOVE MA(7), OR rejection wick + 2+ green bodies above MA(7)
+- SHORT: price AT/BELOW MA(7), OR rejection from above + consolidation
+- Veto if 3+ large candles AGAINST signal, or parabolic extension (5+ candles far from MAs)
 
-**F5: ENTRY TRIGGER**
-- Compression, rejection wick, or breakout after consolidation
+**F5: TRAP DETECTION** (CHECK EVERY TRADE - MOST CRITICAL STEP)
 
-**F6: MOMENTUM FIGHT**
-- 3+ large candles AGAINST signal direction? Active opposing trend?
+**[TRAP A] 66.7%% LONG TRAP — HARD BLOCK:**
+- 66.7%% consensus LONG has >70%% historical loss rate. This is the #1 loss source.
+- AUTOMATIC HOLD unless ALL of: (a) 3+ green candle BODIES already closing above MA(7), (b) MA(7) flat or rising, (c) NOT first bounce after decline
+- Single rejection wick, "touching MA(7)", or "testing from below" = NOT sufficient → HOLD
+- If in doubt at 66.7%%, ALWAYS HOLD.
 
-**F7: CHART B VETO**
-- Parabolic extension (5+ candles far from MAs)? Strong opposing momentum?
-
-**F8: TRAP DETECTION** (CHECK EVERY TRADE - CRITICAL)
-
-**[TRAP A] 66.7%% LONG TRAP:** This consensus level has >70%% historical loss rate.
-- Require 3+ green candle BODIES already holding above MA(7)
-- MA(7) must be flat or rising (not declining)
-- Single rejection wick or "touching MA(7)" = NOT sufficient → HOLD
-
-**[TRAP B] V-RECOVERY SHORT TRAP:** After 3+ large green candles from a low:
-- Do NOT short the consolidation that follows
+**[TRAP B] V-RECOVERY SHORT TRAP:**
+- After 3+ large green candles from a low: do NOT short consolidation
 - Green-dominant consolidation after V-recovery = accumulation → HOLD
-- Need clear red-candle-dominant rejection before any SHORT
+- Need 3+ red candle bodies with price breaking below MA(7) before any SHORT
 
-**[TRAP C] ACCUMULATION TRAP:** In consolidation zones for SHORT:
-- Count green vs red candle bodies
-- Green >= red = accumulation → HOLD, do NOT SHORT
+**[TRAP C] ACCUMULATION TRAP (SHORT):**
+- Count green vs red candle bodies in consolidation zone
+- Green >= red = buyers accumulating → HOLD, do NOT SHORT
 
 **[TRAP D] TIER 1 SHORT FALSE STABILIZATION:**
-- Slope must be < -0.0003 (stricter than general tolerance)
+- Slope must be < -0.0005 (strict). Near-zero or positive slope with SHORT consensus = HOLD
 - Green candle body at support during "stabilization" = buyers present → HOLD
 
-**[TRAP E] FIRST BOUNCE LONG - ENTER vs HOLD:**
-- TRUE falling knife: still making lower lows, no green candles → HOLD
-- VALID bottom: 2+ green candle BODIES above MA(7) + rejection from low + consensus >60%% → ENTER
-- Single exhaustion wick alone = NOT enough to enter
+**[TRAP E] FIRST BOUNCE LONG:**
+- After 3+ large red candles: single green candle/hammer is NOT enough
+- REQUIRE: 2+ green candle BODIES closing above MA(7) + MA(7) flattening
+- The biggest LONG wins had MULTIPLE green candles holding, never single-candle entries
+- Single exhaustion wick alone = HOLD
+
+**[TRAP F] POST-RALLY DISTRIBUTION (NEW):**
+- LONG after 3+ large green candles with consolidation near round-number resistance or recent high = distribution risk
+- If price rallied 50+ points in last 5 candles and is now consolidating → treat as distribution, not continuation → HOLD for LONG
+- Price ABOVE MA(7) after parabolic move ≠ "support at MA(7)" — it's exhaustion
+
+---
+
+### CHART B OVERRIDE (TIER 3 EXCEPTION)
+
+When consensus is 44-55%% (Tier 3) BUT Chart B shows:
+- Price far below ALL MAs with 4+ consecutive red candles (extreme bearish), OR
+- Bearish engulfing / rejection wick after parabolic extension above all MAs
+→ May SHORT with confidence capped at 55, tier labeled "Tier 3 (Chart B Override)"
+This applies to SHORT only. Never override Tier 3 for LONG signals.
 
 ---
 
 ### DECISION RULES
 
 **TIER 1:**
-1. Slope check (LONG >-0.0002 | SHORT < -0.0003)
+1. Slope check (LONG >-0.0002 | SHORT < -0.0005)
 2. Stabilization met if needed
 3. No Chart B veto
 4. No trap conditions triggered
 → TRADE
 
 **TIER 2 (ALL must pass):**
-1. Slope within tolerance
+1. Slope within tolerance (LONG >-0.0005 | SHORT < 0)
 2. MA position correct
 3. Entry trigger present
-4. Not fighting momentum
+4. Not fighting momentum (no 3+ candles against signal)
 5. No Chart B veto
 6. No trap conditions triggered
 → ALL pass: TRADE | ANY fail: HOLD
 
-**TIER 3:** ALWAYS HOLD
+**TIER 3:** HOLD (unless Chart B Override for SHORT)
 
 ---
 
 ### LOSS PREVENTION RED FLAGS (instant HOLD):
-- LONG below declining MA(7) without 2+ green bodies forming base
-- SHORT above ascending MA(7)
+- 66.7%% LONG without proven 3+ green bodies above rising MA(7)
+- ANY LONG below declining MA(7) without 2+ green bodies forming base
+- ANY SHORT above ascending MA(7) without rejection confirmation
 - SHORT after V-recovery (3+ large green candles from low)
-- SHORT with green-dominant consolidation (accumulation)
-- 66.7%% LONG without proven MA(7) support (3+ green bodies above)
-- Tier 1 SHORT with slope > -0.0003
-- "Stabilization" with green candles at support = buyers, not sellers
+- SHORT with green-dominant consolidation
+- Tier 1 SHORT with slope > -0.0005
+- LONG after 3+ green candles near resistance (distribution)
+- First bounce LONG with only 1 green candle after sell-off
 
 ---
 
@@ -244,35 +250,36 @@ You are a **Senior Quantitative Trader** with real money on the line.
     "setup_tier": "Tier 1 (Strong) / Tier 2 (Moderate) / Tier 3 (Skip)",
     "visual_quality": "Excellent / Acceptable / Poor",
     "chart_b_trigger": "Specific entry pattern",
-    "synthesis": "5-8 sentences: tier+slope, Chart B with numbers, trap checks, decision",
+    "synthesis": "3-5 sentences: tier+slope, Chart B with numbers, trap checks, decision",
     "signal": "LONG" | "SHORT" | "HOLD",
     "confidence": 0-100
 }
 
 ### RULES:
 1. Return ONLY valid JSON (start with "{", end with "}")
-2. Max ~700 tokens total output
+2. Max ~600 tokens total output
 3. Describe Chart B with exact numbers
-4. Check ALL 5 trap conditions before every signal
+4. Check ALL 6 trap conditions (A-F) before every signal
 `)
 	userContent := fmt.Sprintf(`
 ### MARKET SNAPSHOT
 - **Consensus (Prob Up):** %.1f%%%%
 - **Slope:** %.6f
 
-### TASK: Analyze F1-F8, check all 5 trap conditions, return JSON.
+### TASK: Analyze structure, check all 6 trap conditions (A-F), return JSON.
 
 **STEP 1:** Classify tier
-**STEP 2:** Analyze Chart B structure (detailed)
-**STEP 3:** Check trap conditions A-E
-**STEP 4:** Decision per tier rules
-**STEP 5:** Write 5-8 sentence synthesis
+**STEP 2:** Analyze Chart B (detailed with numbers)
+**STEP 3:** Check traps A-F (list each)
+**STEP 4:** Decision per rules
+**STEP 5:** Write synthesis
 
 ### Pattern Data:
 %s
 
 Return JSON now.
 `, consensusPct, avgSlope, string(historicalJson))
+
 	// Encode Images
 	b64A, err := encodeImage(chartPathA)
 	if err != nil {
