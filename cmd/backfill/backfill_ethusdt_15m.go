@@ -19,7 +19,8 @@ const (
 	Symbol       = "ETHUSDT"
 	Interval     = "15m"
 	VectorWindow = 30
-	DaysToFetch  = 5 * 365
+	DaysToFetch  = 2
+	//DaysToFetch  = 5 * 365 // 1 //
 	// DaysToFetch  = 365 * 5 // How many days of history you want
 )
 
