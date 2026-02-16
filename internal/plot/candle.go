@@ -4,12 +4,14 @@ import (
 	"fmt"
 	"image/color"
 	"math"
+	"os"
 	"time"
 
 	"gonum.org/v1/plot"
 	"gonum.org/v1/plot/plotter"
 	"gonum.org/v1/plot/vg"
 	"gonum.org/v1/plot/vg/draw"
+	"gonum.org/v1/plot/vg/vgimg"
 
 	"time-series-rag-agent/internal/ai"
 )
@@ -31,8 +33,44 @@ type OHLC struct {
 	Open, High, Low, Close float64
 }
 
+type V struct {
+	Volume float64
+	Up     bool
+}
+
 type Candles struct {
 	Data []OHLC
+}
+
+type VolumeCandle struct {
+	Data []V
+}
+
+// Plot implements the Plotter interface to draw volume bars
+func (vc *VolumeCandle) Plot(canvas draw.Canvas, plt *plot.Plot) {
+	trX, trY := plt.Transforms(&canvas)
+
+	w := canvas.Rectangle.Max.X - canvas.Rectangle.Min.X
+	barWidth := (w / vg.Length(len(vc.Data))) * 0.6 // Use 60% of available slot
+
+	for i, v := range vc.Data {
+		x := trX(float64(i))
+
+		// Choose color based on up/down
+		col := BinanceDown
+		if v.Up {
+			col = BinanceUp
+		}
+
+		// Draw volume bar from 0 to the volume value
+		rect := vg.Rectangle{
+			Min: vg.Point{X: x - barWidth/2, Y: trY(0)},
+			Max: vg.Point{X: x + barWidth/2, Y: trY(v.Volume)},
+		}
+
+		canvas.SetColor(col)
+		canvas.Fill(rect.Path())
+	}
 }
 
 // Plot implements the Plotter interface to draw candles manually
@@ -91,6 +129,34 @@ func (c *Candles) DataRange() (xmin, xmax, ymin, ymax float64) {
 	}
 	return 0, float64(len(c.Data)), ymin, ymax
 }
+
+// DataRange returns the bounding box of the volume data
+func (vc *VolumeCandle) DataRange() (xmin, xmax, ymin, ymax float64) {
+	ymin = 0 // Always start at 0 - volume bars grow from baseline
+	ymax = 0
+	for _, v := range vc.Data {
+		if v.Volume > ymax {
+			ymax = v.Volume
+		}
+	}
+	return 0, float64(len(vc.Data)), ymin, ymax
+}
+func (vc *VolumeCandle) VDataRange() (xmin, xmax, ymin, ymax float64) {
+	ymin = 0
+	ymax = 0
+	for _, v := range vc.Data {
+		if v.Volume > ymax {
+			ymax = v.Volume
+		}
+	}
+	return 0, float64(len(vc.Data)), ymin, ymax
+}
+
+// GlyphBoxes returns nil (no glyphs for volume bars)
+func (vc *VolumeCandle) GlyphBoxes(plt *plot.Plot) []plot.GlyphBox {
+	return nil
+}
+
 func (c *Candles) GlyphBoxes(plt *plot.Plot) []plot.GlyphBox { return nil }
 
 // --- 2. Helper: Simple Moving Average ---
@@ -114,27 +180,32 @@ func calculateSMA(data []float64, period int) []float64 {
 // ... (Imports and Ticker struct remain the same) ...
 
 func GenerateCandleChart(candles []ai.InputData, filename string) error {
-	p := plot.New()
 
-	// 1. Styling
-	p.BackgroundColor = BgDark
-	p.Title.Text = fmt.Sprintf("Price Action [%s]", time.Now().Format("15:04"))
-	p.Title.TextStyle.Color = TextLight
-	p.X.Label.TextStyle.Color = TextLight
-	p.Y.Label.TextStyle.Color = TextLight
-	p.X.Tick.Label.Color = TextLight
-	p.Y.Tick.Label.Color = TextLight
-	p.X.Tick.LineStyle.Color = TextLight
-	p.Y.Tick.LineStyle.Color = TextLight
+	pricePlot := plot.New()
+	volumePlot := plot.New()
 
-	// Grid
+	pricePlot.BackgroundColor = BgDark
+	pricePlot.Title.Text = fmt.Sprintf("Price Action [%s]", time.Now().Format("15:04"))
+	pricePlot.Title.TextStyle.Color = TextLight
+
+	pricePlot.X.Tick.Label.Color = TextLight
+	pricePlot.Y.Tick.Label.Color = TextLight
+	pricePlot.X.Tick.LineStyle.Color = TextLight
+	pricePlot.Y.Tick.LineStyle.Color = TextLight
+
 	grid := plotter.NewGrid()
 	grid.Vertical.Color = GridDark
 	grid.Horizontal.Color = GridDark
-	p.Add(grid)
+	pricePlot.Add(grid)
 
-	// 2. Prepare Data
+	volumePlot.BackgroundColor = BgDark
+	volumePlot.X.Tick.Label.Color = TextLight
+	volumePlot.Y.Tick.Label.Color = TextLight
+	volumePlot.X.Tick.LineStyle.Color = TextLight
+	volumePlot.Y.Tick.LineStyle.Color = TextLight
+
 	ohlcData := make([]OHLC, len(candles))
+	vData := make([]V, len(candles))
 	closePrices := make([]float64, len(candles))
 
 	for i, c := range candles {
@@ -144,48 +215,84 @@ func GenerateCandleChart(candles []ai.InputData, filename string) error {
 			Low:   c.Low,
 			Close: c.Close,
 		}
+		vData[i] = V{
+			Volume: c.Volume,
+			Up:     c.Close >= c.Open,
+		}
 		closePrices[i] = c.Close
 	}
 
-	// 3. Add Candles
 	candlePlot := &Candles{Data: ohlcData}
-	p.Add(candlePlot)
+	volumeBars := &VolumeCandle{Data: vData}
 
-	// 4. Add Moving Averages & Legend
+	pricePlot.Add(candlePlot)
+	volumePlot.Add(volumeBars)
+
+	// Sync X range
+	pricePlot.X.Min = 0
+	pricePlot.X.Max = float64(len(candles))
+
+	volumePlot.X.Min = 0
+	volumePlot.X.Max = float64(len(candles))
+
+	// Volume should start at 0
+	volumePlot.Y.Min = 0
+
 	addMA := func(period int, col color.RGBA) {
 		maData := calculateSMA(closePrices, period)
 		pts := make(plotter.XYs, 0)
+
 		for i, v := range maData {
 			if !math.IsNaN(v) {
-				pts = append(pts, plotter.XY{X: float64(i), Y: v})
+				pts = append(pts, plotter.XY{
+					X: float64(i),
+					Y: v,
+				})
 			}
 		}
+
 		line, _ := plotter.NewLine(pts)
 		line.LineStyle.Color = col
 		line.LineStyle.Width = vg.Points(1.5)
-		p.Add(line)
 
-		// --- ADD LABEL HERE ---
-		// This adds the entry to the legend box
-		p.Legend.Add(fmt.Sprintf("MA(%d)", period), line)
+		pricePlot.Add(line)
+		pricePlot.Legend.Add(fmt.Sprintf("MA(%d)", period), line)
 	}
 
-	addMA(7, Ma7Color)   // Yellow
-	addMA(25, Ma25Color) // Purple
-	addMA(99, Ma99Color) // Pink
+	addMA(7, Ma7Color)
+	addMA(25, Ma25Color)
+	addMA(99, Ma99Color)
 
-	// --- Configure Legend Style ---
-	p.Legend.Top = true
-	p.Legend.Left = true
-	p.Legend.Padding = vg.Points(5)
-	p.Legend.TextStyle.Color = TextLight
-	p.Legend.TextStyle.Font.Size = vg.Points(10)
-	// Transparent background for the legend box so it doesn't block candles
-	p.Legend.ThumbnailWidth = vg.Points(20)
+	pricePlot.Legend.Top = true
+	pricePlot.Legend.Left = true
+	pricePlot.Legend.TextStyle.Color = TextLight
 
-	// 6. Save
-	if err := p.Save(12*vg.Inch, 6*vg.Inch, filename); err != nil {
+	img := vgimg.New(12*vg.Inch, 6*vg.Inch)
+	dc := draw.New(img)
+
+	tiles := draw.Tiles{
+		Rows: 2,
+		Cols: 1,
+	}
+
+	plots := [][]*plot.Plot{
+		{pricePlot},
+		{volumePlot},
+	}
+
+	canvases := plot.Align(plots, tiles, dc)
+
+	pricePlot.Draw(canvases[0][0])
+	volumePlot.Draw(canvases[1][0])
+
+	w, err := os.Create(filename)
+	if err != nil {
 		return err
 	}
-	return nil
+	defer w.Close()
+
+	png := vgimg.PngCanvas{Canvas: img}
+	_, err = png.WriteTo(w)
+
+	return err
 }
