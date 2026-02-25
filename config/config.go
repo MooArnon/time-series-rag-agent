@@ -27,6 +27,7 @@ type AgentConfig struct {
 	SLPercentage      float64
 	TPPercentage      float64
 	StopROI           float64
+	StopLossROI       float64
 }
 
 type QueConfig struct {
@@ -91,6 +92,7 @@ func LoadConfig() *AppConfig {
 			SLPercentage:      getEnvAsFloat("SL_PERCENTAGE", 0.03),
 			TPPercentage:      getEnvAsFloat("TP_PERCENTAGE", 0.7),
 			StopROI:           getEnvAsFloat("STOP_ROI", 5.0),
+			StopLossROI:       getEnvAsFloat("STOP_LOSS_ROI", 3.0),
 		},
 		Que: QueConfig{
 			QueUrl: getEnv("SQS_URL", ""),

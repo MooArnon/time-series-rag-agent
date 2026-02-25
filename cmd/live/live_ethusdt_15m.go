@@ -174,6 +174,11 @@ func main() {
 			return
 		}
 
+		if roi <= -cfg.Agent.StopLossROI {
+			logger.Info(fmt.Sprintf("Current ROI is %f ,which is lower than %f. STOP PIPELINE", roi, cfg.Agent.StopLossROI))
+			return
+		}
+
 		matches, err := pg.SearchPatterns(context.Background(), feature.Embedding, top_k, Symbol)
 		if len(matches) > 0 {
 
