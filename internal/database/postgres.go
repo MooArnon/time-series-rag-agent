@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"time"
 
 	"time-series-rag-agent/internal/ai"
@@ -240,8 +241,13 @@ func (db *PostgresDB) IngestTradingLog(ctx context.Context, tradingLog TradingLo
 	}
 	defer tx.Rollback(ctx)
 
-	// --- 1. Insert/Upsert the Current Feature (T) ---
-	// We save the Embedding NOW. The labels (next_return, slope) are NULL for now.
+	// แปลง recorded_at จาก string epoch → time.Time
+	epochInt, err := strconv.ParseInt(tradingLog.RecordedAt, 10, 64)
+	if err != nil {
+		return fmt.Errorf("invalid recorded_at format: %w", err)
+	}
+	recordedAt := time.Unix(epochInt, 0).UTC()
+
 	q1 := `
     INSERT INTO trading.signal_log (
         recorded_at,
@@ -254,20 +260,20 @@ func (db *PostgresDB) IngestTradingLog(ctx context.Context, tradingLog TradingLo
         chart_prefix
     )
     VALUES (
-        $1,                -- Map to tradingLog.RecordedAt
+        $1,
         current_timestamp, 
         0, 
-        $2,                -- Map to tradingLog.Symbol
-        $3,                -- Map to tradingLog.Signal
-        $4,                -- Map to tradingLog.Reason
-        $5,                -- Map to tradingLog.CandleKey
-        $6                 -- Map to tradingLog.ChartKey
+        $2,
+        $3,
+        $4,
+        $5,
+        $6
     )
     ON CONFLICT (recorded_at, symbol)
     DO NOTHING
 `
 	_, err = tx.Exec(ctx, q1,
-		tradingLog.RecordedAt,
+		recordedAt, // ← ส่ง time.Time แทน string
 		tradingLog.Symbol,
 		tradingLog.Signal,
 		tradingLog.Reason,
