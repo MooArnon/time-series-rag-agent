@@ -215,6 +215,10 @@ func GenerateCandleChart(candles []ai.InputData, filename string) error {
 			Low:   c.Low,
 			Close: c.Close,
 		}
+		vData[i] = V{
+			Volume: c.Volume,
+			Up:     c.Close >= c.Open,
+		}
 		closePrices[i] = c.Close
 	}
 
