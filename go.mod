@@ -13,6 +13,7 @@ require (
 	github.com/jackc/pgx/v5 v5.7.2
 	github.com/pgvector/pgvector-go v0.3.0
 	gonum.org/v1/plot v0.16.0
+	gorm.io/gorm v1.25.5
 )
 
 require (

@@ -115,3 +115,16 @@ func CalculateSlope(prices []float64) float64 {
 
 	return numerator / denominator
 }
+
+// SimilarityPct converts cosine distance to similarity percentage
+func (p PatternLabel) SimilarityPct() float64 {
+	return math.Max(0, (1.0-p.Distance)*100)
+}
+
+// TrendOutcome returns "UP" or "DOWN" based on NextSlope3
+func (p PatternLabel) TrendOutcome() string {
+	if p.NextSlope3 < 0 {
+		return "DOWN"
+	}
+	return "UP"
+}
