@@ -19,6 +19,16 @@ type AppConfig struct {
 	Discord    DiscordConfig
 	Agent      AgentConfig
 	Que        QueConfig
+	Regime     RegimeConfig
+	LLM        LLMConfig
+}
+
+type RegimeConfig struct {
+	ADXTrendThreshold    float64
+	ADXRangeThreshold    float64
+	ATRVolatileThreshold float64
+	BandWidthThreshold   float64
+	BandWidthPeriod      int
 }
 
 type AgentConfig struct {
@@ -28,6 +38,10 @@ type AgentConfig struct {
 	TPPercentage      float64
 	StopROI           float64
 	StopLossROI       float64
+}
+
+type LLMConfig struct {
+	NumPnLLookback int
 }
 
 type QueConfig struct {
@@ -92,10 +106,20 @@ func LoadConfig() *AppConfig {
 			SLPercentage:      getEnvAsFloat("SL_PERCENTAGE", 0.03),
 			TPPercentage:      getEnvAsFloat("TP_PERCENTAGE", 0.7),
 			StopROI:           getEnvAsFloat("STOP_ROI", 5.0),
-			StopLossROI:       getEnvAsFloat("STOP_LOSS_ROI", 3.0),
+			StopLossROI:       getEnvAsFloat("STOP_LOSS_ROI", 10.0),
 		},
 		Que: QueConfig{
 			QueUrl: getEnv("SQS_URL", ""),
+		},
+		Regime: RegimeConfig{
+			ADXTrendThreshold:    getEnvAsFloat("ADX_TREND_THRESHOLD", 25.0),
+			ADXRangeThreshold:    getEnvAsFloat("ADX_RANGE_THRESHOLD", 20.0),
+			ATRVolatileThreshold: getEnvAsFloat("ATR_VOLATILE_THRESHOLD", 1.5),
+			BandWidthThreshold:   getEnvAsFloat("BANDWIDTH_THRESHOLD", 0.025),
+			BandWidthPeriod:      getEnvAsInt("BANDWIDTH_PERIOD", 30),
+		},
+		LLM: LLMConfig{
+			NumPnLLookback: getEnvAsInt("NUM_PNL_LOOKBACK", 15),
 		},
 	}
 

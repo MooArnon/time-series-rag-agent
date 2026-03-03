@@ -14,6 +14,7 @@ import (
 	"time-series-rag-agent/internal/ai"
 	"time-series-rag-agent/internal/database"
 	"time-series-rag-agent/internal/llm"
+	market_trend "time-series-rag-agent/internal/market_trend"
 	"time-series-rag-agent/internal/notifier"
 	"time-series-rag-agent/internal/plot"
 	"time-series-rag-agent/internal/s3"
@@ -104,11 +105,12 @@ func main() {
 		startEpoch := time.Now().Unix()
 
 		liveCandle := ai.InputData{
-			Time:  event.Kline.StartTime / 1000,
-			Open:  parse(event.Kline.Open),
-			High:  parse(event.Kline.High),
-			Low:   parse(event.Kline.Low),
-			Close: parse(event.Kline.Close),
+			Time:   event.Kline.StartTime / 1000,
+			Open:   parse(event.Kline.Open),
+			High:   parse(event.Kline.High),
+			Low:    parse(event.Kline.Low),
+			Close:  parse(event.Kline.Close),
+			Volume: parse(event.Kline.Volume),
 		}
 		logger.Info("==================== START ====================")
 		logger.Info(fmt.Sprintf("[Event] Candle Closed: %s | Price: %.4f\n",
@@ -118,7 +120,7 @@ func main() {
 
 		// 2. Fetch History via REST
 		// We request Window + 5 to handle overlaps safely
-		history, err := fetchRealHistory(binanceClient, Symbol, Interval, VectorWindow+5)
+		history, err := fetchRealHistory(binanceClient, Symbol, Interval, VectorWindow+100)
 		if err != nil {
 			logger.Info(fmt.Sprintf("API Error: %v", err))
 			return
@@ -182,18 +184,6 @@ func main() {
 		matches, err := pg.SearchPatterns(context.Background(), feature.Embedding, top_k, Symbol)
 		if len(matches) > 0 {
 
-			// ---------------------------------------------------------
-			// TIME GUARD
-			// We found matches (good for BI), but we only act on :00 and :30
-			// to save LLM costs and reduce market noise.
-			// ---------------------------------------------------------
-			// if !IsTimeWindowOpen() {
-			// 	logger.Info(fmt.Sprintf("[TimeGuard] Time %s is outside strategy window (:00/:30). Skipping LLM & Trade.", time.Now().Format("15:04")))
-			// 	// We return (or 'continue' if inside a loop) to finish this cycle
-			// 	// without calling the LLM.
-			// 	return
-			// }
-
 			logger.Info(fmt.Sprintf("[Embedding] Found %d matches. Visualizing alignment...", len(matches)))
 
 			// FIX: Pass feature.Embedding (Current) and matches (Historical)
@@ -210,20 +200,40 @@ func main() {
 
 			// filename_cancdle_chart := fmt.Sprintf("candle_chart_%s.png", time.Now().Format("150405"))
 			const fileCandle string = "candle.png"
-			err_candle_chart := plot.GenerateCandleChart(cleanWindow, fileCandle)
+			plotInfo, err := SafeMerge(history, liveCandle, VectorWindow+99, IntervalSecs)
+			if err != nil {
+				logger.Info(fmt.Sprintf("Data generate data for plot: %v", err))
+				return
+			}
+
+			err_candle_chart := plot.GenerateCandleChart(plotInfo, fileCandle)
 			if err != nil {
 				logger.Info(fmt.Sprintf("Plot Error: %v", err_candle_chart))
 			} else {
-				logger.Info(fmt.Sprintf("Chart saved: %s", fileCandle))
+
 			}
 
+			// Generate the prompt with the new format (including historicalJson)
 			llmClient := llm.NewLLMService(cfg.OpenRouter.ApiKey)
+
+			pnlData, err := pg.QueryPnLData(context.TODO(), cfg.LLM.NumPnLLookback)
+			if err != nil {
+				fmt.Printf("Error querying PnL data: %v\n", err)
+				return
+			}
+
+			// Get market regime
+			regimes, _ := market_trend.FetchLatestRegimes(binanceClient, cfg, "ETHUSDT", []string{"4h", "1d"})
+
 			sysMsg, usrMsg, b64A, b64B, err := llmClient.GenerateTradingPrompt(
 				time.Now().Format("15:04:05"),
 				matches,
 				fileProj,   // Chart A (Macro)
 				fileCandle, // Chart B (Micro)
+				pnlData,
+				regimes,
 			)
+
 			if err != nil {
 				logger.Info(fmt.Sprintf("Prompt Error: %v", err))
 				return
@@ -242,7 +252,7 @@ func main() {
 
 			tradeMsg := fmt.Sprintf(
 				"**SIDE:** %s\n**CONFIDENCE:** %d%%\n**REASON:** %s",
-				signal.Signal, signal.Confidence, signal.Synthesis,
+				signal.Signal, signal.Confidence, signal.Reason,
 			)
 
 			if signal.Confidence >= signalConfidence {
@@ -259,6 +269,19 @@ func main() {
 					if err != nil {
 						logger.Info(fmt.Sprintln(err))
 					}
+				} else {
+					logger.Info("[Signal] HOLD - checking for stale open orders...")
+					tradeCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+
+					// ← defer ให้ run หลัง function จบ
+					defer cancel()
+
+					err = executor.CancelTrade(tradeCtx)
+					if err != nil {
+						logger.Error(fmt.Sprintf("CancelTrade failed: %v", err))
+					} else {
+						logger.Info("[Signal] Stale order cancelled successfully")
+					}
 				}
 
 			} else {
@@ -272,7 +295,7 @@ func main() {
 			candleKey, err := s3.UploadImageToS3(logsContext, "candle.png", "candle")
 			chartKey, err := s3.UploadImageToS3(logsContext, "chart.png", "chart")
 
-			reason := fmt.Sprintf("Reason: %s, SetupTeir: %s, VisualQuality: %s, ChartBTrigger: %s", signal.Synthesis, signal.SetupTeir, signal.VisualQuality, signal.ChartBTrigger)
+			reason := fmt.Sprintf("Reason: %s, Con: %d%%, PatternRead: %s, PriceAction: %s, RiskNote: %s", signal.Reason, signal.Confidence, signal.PatternRead, signal.PriceAction, signal.RiskNote)
 
 			messageQue := map[string]string{
 				"signal":      signal.Signal,
@@ -297,21 +320,26 @@ func main() {
 			discord.NotifyPipeline(tradeMsg, fileCandle)
 
 			discord.NotifyPipeline(
-				fmt.Sprintln("**SetupTeir:** ", signal.SetupTeir),
+				fmt.Sprintln("**RegimeContext:** ", signal.RegimeContext),
 				"",
 			)
 			discord.NotifyPipeline(
-				fmt.Sprintln("**VisualQuality:** ", signal.VisualQuality),
+				fmt.Sprintln("**PatternRead:** ", signal.PatternRead),
 				"",
 			)
 			discord.NotifyPipeline(
-				fmt.Sprintln("**ChartBTrigger:** ", signal.ChartBTrigger),
+				fmt.Sprintln("**PriceAction:** ", signal.PriceAction),
+				"",
+			)
+
+			discord.NotifyPipeline(
+				fmt.Sprintln("**RiskNote:** ", signal.RiskNote),
 				"",
 			)
 
 			// 3. Act
 			logger.Info(fmt.Sprintf("[LLM] SIGNAL: %s (Conf: %d%%)", signal.Signal, signal.Confidence))
-			logger.Info(fmt.Sprintf("[LLM] Reasoning: %s", signal.Synthesis))
+			logger.Info(fmt.Sprintf("[LLM] Reasoning: %s", signal.Reason))
 		}
 	}
 
@@ -371,13 +399,15 @@ func fetchRealHistory(client *futures.Client, symbol string, interval string, li
 		hi, _ := strconv.ParseFloat(k.High, 64)
 		lo, _ := strconv.ParseFloat(k.Low, 64)
 		cl, _ := strconv.ParseFloat(k.Close, 64)
+		va, _ := strconv.ParseFloat(k.Volume, 64)
 
 		data[i] = ai.InputData{
-			Time:  openTime,
-			Open:  op, // <--- This was missing
-			High:  hi, // <--- This was missing
-			Low:   lo, // <--- This was missing
-			Close: cl,
+			Time:   openTime,
+			Open:   op, // <--- This was missing
+			High:   hi, // <--- This was missing
+			Low:    lo, // <--- This was missing
+			Close:  cl,
+			Volume: va,
 		}
 	}
 

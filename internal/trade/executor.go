@@ -94,6 +94,17 @@ func (e *Executor) SetLeverage(ctx context.Context, leverage int) error {
 	return nil
 }
 
+func (e *Executor) CancelTrade(ctx context.Context) error {
+	e.Log.Info(fmt.Sprintln("[Executor] 🧹 Cleaning up open orders..."))
+	if err := e.CancelAllOpenOrders(ctx); err != nil {
+		e.Log.Info(fmt.Sprintf("[Executor] Warning: %v\n", err))
+	}
+	if err := e.CancelAllAlgoOrders(ctx); err != nil {
+		e.Log.Info(fmt.Sprintf("[Executor] Warning: %v\n", err))
+	}
+	return nil
+}
+
 // PlaceTrade executes the Main Order + Stop Loss + Take Profit
 // PlaceTrade executes the Main Order (Standard) + SL/TP (Algo)
 func (e *Executor) PlaceTrade(ctx context.Context, side string, priceToPlace float64) error {

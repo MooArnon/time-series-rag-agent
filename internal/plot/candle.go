@@ -4,12 +4,14 @@ import (
 	"fmt"
 	"image/color"
 	"math"
+	"os"
 	"time"
 
 	"gonum.org/v1/plot"
 	"gonum.org/v1/plot/plotter"
 	"gonum.org/v1/plot/vg"
 	"gonum.org/v1/plot/vg/draw"
+	"gonum.org/v1/plot/vg/vgimg"
 
 	"time-series-rag-agent/internal/ai"
 )
@@ -26,6 +28,8 @@ var (
 	Ma99Color   = color.RGBA{R: 216, G: 64, B: 174, A: 255}  // Pink
 )
 
+const displayN = 30
+
 // --- 1. Custom Candlestick Plotter ---
 type OHLC struct {
 	Open, High, Low, Close float64
@@ -33,6 +37,14 @@ type OHLC struct {
 
 type Candles struct {
 	Data []OHLC
+}
+
+type V struct {
+	Volume float64
+	Up     bool
+}
+type VolumeCandle struct {
+	Data []V
 }
 
 // Plot implements the Plotter interface to draw candles manually
@@ -77,6 +89,32 @@ func (c *Candles) Plot(canvas draw.Canvas, plt *plot.Plot) {
 	}
 }
 
+func (vc *VolumeCandle) Plot(canvas draw.Canvas, plt *plot.Plot) {
+	trX, trY := plt.Transforms(&canvas)
+
+	w := canvas.Rectangle.Max.X - canvas.Rectangle.Min.X
+	barWidth := (w / vg.Length(len(vc.Data))) * 0.6 // Use 60% of available slot
+
+	for i, v := range vc.Data {
+		x := trX(float64(i))
+
+		// Choose color based on up/down
+		col := BinanceDown
+		if v.Up {
+			col = BinanceUp
+		}
+
+		// Draw volume bar from 0 to the volume value
+		rect := vg.Rectangle{
+			Min: vg.Point{X: x - barWidth/2, Y: trY(0)},
+			Max: vg.Point{X: x + barWidth/2, Y: trY(v.Volume)},
+		}
+
+		canvas.SetColor(col)
+		canvas.Fill(rect.Path())
+	}
+}
+
 // DataRange returns the bounding box of the data
 func (c *Candles) DataRange() (xmin, xmax, ymin, ymax float64) {
 	ymin = math.Inf(1)
@@ -92,6 +130,33 @@ func (c *Candles) DataRange() (xmin, xmax, ymin, ymax float64) {
 	return 0, float64(len(c.Data)), ymin, ymax
 }
 func (c *Candles) GlyphBoxes(plt *plot.Plot) []plot.GlyphBox { return nil }
+
+// DataRange returns the bounding box of the volume data
+func (vc *VolumeCandle) DataRange() (xmin, xmax, ymin, ymax float64) {
+	ymin = 0 // Always start at 0 - volume bars grow from baseline
+	ymax = 0
+	for _, v := range vc.Data {
+		if v.Volume > ymax {
+			ymax = v.Volume
+		}
+	}
+	return 0, float64(len(vc.Data)), ymin, ymax
+}
+func (vc *VolumeCandle) VDataRange() (xmin, xmax, ymin, ymax float64) {
+	ymin = 0
+	ymax = 0
+	for _, v := range vc.Data {
+		if v.Volume > ymax {
+			ymax = v.Volume
+		}
+	}
+	return 0, float64(len(vc.Data)), ymin, ymax
+}
+
+// GlyphBoxes returns nil (no glyphs for volume bars)
+func (vc *VolumeCandle) GlyphBoxes(plt *plot.Plot) []plot.GlyphBox {
+	return nil
+}
 
 // --- 2. Helper: Simple Moving Average ---
 func calculateSMA(data []float64, period int) []float64 {
@@ -113,8 +178,9 @@ func calculateSMA(data []float64, period int) []float64 {
 // --- 3. Main Chart Generation Function ---
 // ... (Imports and Ticker struct remain the same) ...
 
-func GenerateCandleChart(candles []ai.InputData, filename string) error {
+func GenerateCandleChart(candles []ai.InputData, filename string, lastNPlot ...int) error {
 	p := plot.New()
+	volumePlot := plot.New()
 
 	// 1. Styling
 	p.BackgroundColor = BgDark
@@ -133,59 +199,121 @@ func GenerateCandleChart(candles []ai.InputData, filename string) error {
 	grid.Horizontal.Color = GridDark
 	p.Add(grid)
 
-	// 2. Prepare Data
-	ohlcData := make([]OHLC, len(candles))
-	closePrices := make([]float64, len(candles))
+	volumePlot.BackgroundColor = BgDark
+	volumePlot.X.Tick.Label.Color = TextLight
+	volumePlot.Y.Tick.Label.Color = TextLight
+	volumePlot.X.Tick.LineStyle.Color = TextLight
+	volumePlot.Y.Tick.LineStyle.Color = TextLight
 
+	// 2. Prepare Data
+	closePrices := make([]float64, len(candles))
 	for i, c := range candles {
+		closePrices[i] = c.Close
+	}
+
+	fmt.Println("Total Prices:", len(closePrices))
+
+	// กำหนด range ที่จะ plot
+	n := 0 // default
+	if len(lastNPlot) > 0 {
+		n = lastNPlot[0]
+	}
+	totalLen := len(candles)
+	startIdx := 0
+	if n > 0 && n < totalLen {
+		startIdx = totalLen - n
+	}
+	plotCandles := candles[startIdx:]
+	plotLen := len(plotCandles)
+
+	ohlcData := make([]OHLC, plotLen)
+	vData := make([]V, plotLen)
+
+	for i, c := range plotCandles {
 		ohlcData[i] = OHLC{
 			Open:  c.Open,
 			High:  c.High,
 			Low:   c.Low,
 			Close: c.Close,
 		}
-		closePrices[i] = c.Close
+		vData[i] = V{
+			Volume: c.Volume,
+			Up:     c.Close >= c.Open,
+		}
 	}
 
 	// 3. Add Candles
 	candlePlot := &Candles{Data: ohlcData}
 	p.Add(candlePlot)
+	p.X.Min = 0
+	p.X.Max = float64(plotLen)
 
-	// 4. Add Moving Averages & Legend
+	volumeBars := &VolumeCandle{Data: vData}
+	volumePlot.Add(volumeBars)
+	volumePlot.X.Min = 0
+	volumePlot.X.Max = float64(plotLen)
+
+	// 4. Add Moving Averages (คำนวณจาก closePrices ทั้งหมด แต่ plot เฉพาะช่วง lastNPlot)
 	addMA := func(period int, col color.RGBA) {
-		maData := calculateSMA(closePrices, period)
+		maData := calculateSMA(closePrices, period) // คำนวณทั้งหมด
 		pts := make(plotter.XYs, 0)
-		for i, v := range maData {
+		for i := startIdx; i < totalLen; i++ {
+			v := maData[i]
 			if !math.IsNaN(v) {
-				pts = append(pts, plotter.XY{X: float64(i), Y: v})
+				pts = append(pts, plotter.XY{
+					X: float64(i - startIdx), // re-index ให้เริ่มจาก 0
+					Y: v,
+				})
 			}
 		}
 		line, _ := plotter.NewLine(pts)
 		line.LineStyle.Color = col
 		line.LineStyle.Width = vg.Points(1.5)
 		p.Add(line)
-
-		// --- ADD LABEL HERE ---
-		// This adds the entry to the legend box
 		p.Legend.Add(fmt.Sprintf("MA(%d)", period), line)
 	}
 
-	addMA(7, Ma7Color)   // Yellow
-	addMA(25, Ma25Color) // Purple
-	addMA(99, Ma99Color) // Pink
+	addMA(7, Ma7Color)
+	addMA(25, Ma25Color)
+	addMA(99, Ma99Color)
 
-	// --- Configure Legend Style ---
 	p.Legend.Top = true
 	p.Legend.Left = true
-	p.Legend.Padding = vg.Points(5)
 	p.Legend.TextStyle.Color = TextLight
-	p.Legend.TextStyle.Font.Size = vg.Points(10)
-	// Transparent background for the legend box so it doesn't block candles
-	p.Legend.ThumbnailWidth = vg.Points(20)
 
-	// 6. Save
-	if err := p.Save(12*vg.Inch, 6*vg.Inch, filename); err != nil {
+	img := vgimg.New(12*vg.Inch, 8*vg.Inch)
+	dc := draw.New(img)
+
+	// price = 2/3, volume = 1/3
+	totalH := dc.Rectangle.Max.Y - dc.Rectangle.Min.Y
+	splitY := dc.Rectangle.Min.Y + totalH/4
+
+	priceCanvas := draw.Canvas{
+		Canvas: dc,
+		Rectangle: vg.Rectangle{
+			Min: vg.Point{X: dc.Rectangle.Min.X, Y: splitY},
+			Max: vg.Point{X: dc.Rectangle.Max.X, Y: dc.Rectangle.Max.Y},
+		},
+	}
+	volumeCanvas := draw.Canvas{
+		Canvas: dc,
+		Rectangle: vg.Rectangle{
+			Min: vg.Point{X: dc.Rectangle.Min.X, Y: dc.Rectangle.Min.Y},
+			Max: vg.Point{X: dc.Rectangle.Max.X, Y: splitY},
+		},
+	}
+
+	p.Draw(priceCanvas)
+	volumePlot.Draw(volumeCanvas)
+
+	w, err := os.Create(filename)
+	if err != nil {
 		return err
 	}
-	return nil
+	defer w.Close()
+
+	png := vgimg.PngCanvas{Canvas: img}
+	_, err = png.WriteTo(w)
+
+	return err
 }
