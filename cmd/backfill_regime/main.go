@@ -160,21 +160,21 @@ func processCandles(
 			MinusDI:   adx.MinusDI,
 			ATRRatio:  atrRatio,
 			BandWidth: bandWidth,
-			Regime:    markettrend.RegimeUnknown,
+			Regime:    "UNKNOWN",
 		}
 
 		switch {
 		case atrRatio > cfg.Regime.ATRVolatileThreshold:
-			result.Regime = markettrend.RegimeVolatile
+			result.Regime = "VOLATILE"
 		case adx.ADX > cfg.Regime.ADXTrendThreshold && atrRatio < cfg.Regime.ATRVolatileThreshold:
-			result.Regime = markettrend.RegimeTrending
+			result.Regime = "TRENDING"
 			if adx.PlusDI > adx.MinusDI {
 				result.Direction = "BULL"
 			} else {
 				result.Direction = "BEAR"
 			}
 		case adx.ADX < cfg.Regime.ADXRangeThreshold && bandWidth < cfg.Regime.BandWidthThreshold:
-			result.Regime = markettrend.RegimeRanging
+			result.Regime = "RANGING"
 		}
 
 		rows = append(rows, regimeRow{
@@ -254,14 +254,14 @@ func batchUpsertRegime(
 
 func toRegimeString(result markettrend.RegimeResult) string {
 	switch result.Regime {
-	case markettrend.RegimeTrending:
+	case "TRENDING":
 		if result.Direction == "BULL" {
 			return "TRENDING_BULL"
 		}
 		return "TRENDING_BEAR"
-	case markettrend.RegimeRanging:
+	case "RANGING":
 		return "RANGING"
-	case markettrend.RegimeVolatile:
+	case "VOLATILE":
 		return "VOLATILE"
 	default:
 		return "UNKNOWN"

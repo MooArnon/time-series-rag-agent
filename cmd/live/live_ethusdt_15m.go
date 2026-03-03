@@ -120,7 +120,7 @@ func main() {
 
 		// 2. Fetch History via REST
 		// We request Window + 5 to handle overlaps safely
-		history, err := fetchRealHistory(binanceClient, Symbol, Interval, VectorWindow+5)
+		history, err := fetchRealHistory(binanceClient, Symbol, Interval, VectorWindow+100)
 		if err != nil {
 			logger.Info(fmt.Sprintf("API Error: %v", err))
 			return
@@ -200,11 +200,17 @@ func main() {
 
 			// filename_cancdle_chart := fmt.Sprintf("candle_chart_%s.png", time.Now().Format("150405"))
 			const fileCandle string = "candle.png"
-			err_candle_chart := plot.GenerateCandleChart(cleanWindow, fileCandle)
+			plotInfo, err := SafeMerge(history, liveCandle, VectorWindow+99, IntervalSecs)
+			if err != nil {
+				logger.Info(fmt.Sprintf("Data generate data for plot: %v", err))
+				return
+			}
+
+			err_candle_chart := plot.GenerateCandleChart(plotInfo, fileCandle)
 			if err != nil {
 				logger.Info(fmt.Sprintf("Plot Error: %v", err_candle_chart))
 			} else {
-				logger.Info(fmt.Sprintf("Chart saved: %s", fileCandle))
+
 			}
 
 			// Generate the prompt with the new format (including historicalJson)

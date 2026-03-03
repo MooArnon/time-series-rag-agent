@@ -28,6 +28,8 @@ var (
 	Ma99Color   = color.RGBA{R: 216, G: 64, B: 174, A: 255}  // Pink
 )
 
+const displayN = 30
+
 // --- 1. Custom Candlestick Plotter ---
 type OHLC struct {
 	Open, High, Low, Close float64
@@ -176,7 +178,7 @@ func calculateSMA(data []float64, period int) []float64 {
 // --- 3. Main Chart Generation Function ---
 // ... (Imports and Ticker struct remain the same) ...
 
-func GenerateCandleChart(candles []ai.InputData, filename string) error {
+func GenerateCandleChart(candles []ai.InputData, filename string, lastNPlot ...int) error {
 	p := plot.New()
 	volumePlot := plot.New()
 
@@ -204,11 +206,30 @@ func GenerateCandleChart(candles []ai.InputData, filename string) error {
 	volumePlot.Y.Tick.LineStyle.Color = TextLight
 
 	// 2. Prepare Data
-	ohlcData := make([]OHLC, len(candles))
-	vData := make([]V, len(candles))
 	closePrices := make([]float64, len(candles))
-
 	for i, c := range candles {
+		closePrices[i] = c.Close
+	}
+
+	fmt.Println("Total Prices:", len(closePrices))
+
+	// กำหนด range ที่จะ plot
+	n := 0 // default
+	if len(lastNPlot) > 0 {
+		n = lastNPlot[0]
+	}
+	totalLen := len(candles)
+	startIdx := 0
+	if n > 0 && n < totalLen {
+		startIdx = totalLen - n
+	}
+	plotCandles := candles[startIdx:]
+	plotLen := len(plotCandles)
+
+	ohlcData := make([]OHLC, plotLen)
+	vData := make([]V, plotLen)
+
+	for i, c := range plotCandles {
 		ohlcData[i] = OHLC{
 			Open:  c.Open,
 			High:  c.High,
@@ -219,28 +240,28 @@ func GenerateCandleChart(candles []ai.InputData, filename string) error {
 			Volume: c.Volume,
 			Up:     c.Close >= c.Open,
 		}
-		closePrices[i] = c.Close
 	}
 
 	// 3. Add Candles
 	candlePlot := &Candles{Data: ohlcData}
 	p.Add(candlePlot)
 	p.X.Min = 0
-	p.X.Max = float64(len(candles))
+	p.X.Max = float64(plotLen)
 
 	volumeBars := &VolumeCandle{Data: vData}
 	volumePlot.Add(volumeBars)
 	volumePlot.X.Min = 0
-	volumePlot.X.Max = float64(len(candles))
+	volumePlot.X.Max = float64(plotLen)
 
-	// 4. Add Moving Averages & Legend
+	// 4. Add Moving Averages (คำนวณจาก closePrices ทั้งหมด แต่ plot เฉพาะช่วง lastNPlot)
 	addMA := func(period int, col color.RGBA) {
-		maData := calculateSMA(closePrices, period)
+		maData := calculateSMA(closePrices, period) // คำนวณทั้งหมด
 		pts := make(plotter.XYs, 0)
-		for i, v := range maData {
+		for i := startIdx; i < totalLen; i++ {
+			v := maData[i]
 			if !math.IsNaN(v) {
 				pts = append(pts, plotter.XY{
-					X: float64(i),
+					X: float64(i - startIdx), // re-index ให้เริ่มจาก 0
 					Y: v,
 				})
 			}
