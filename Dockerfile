@@ -9,27 +9,3 @@ RUN go mod download
 
 # Copy the rest of the source code
 COPY . .
-
-# Build the binary. 
-# -o main: output file name
-# ./cmd/live/live_ethusdt_15m.go: path to your specific main file
-RUN go build -o live_ethusdt_15m ./cmd/live/live_ethusdt_15m.go
-RUN go build -o consume_que ./cmd/consume_que/main.go
-
-# --- Stage 2: Runner (Production Image) ---
-FROM alpine:latest
-
-# Install CA certificates (Required for making HTTPS requests to Binance/AWS)
-RUN apk --no-cache add ca-certificates
-
-WORKDIR /root/
-
-# Copy ONLY the binary from the builder stage
-COPY --from=builder /app/live_ethusdt_15m .
-COPY --from=builder /app/consume_que .
-
-# Copy .env if you still use it (though AWS Secrets Manager is better)
-# COPY .env . 
-
-# Run the binary
-CMD ["./live_ethusdt_15m"]
