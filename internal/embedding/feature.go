@@ -1,10 +1,13 @@
 package embedding
 
-import "time"
+import (
+	"time"
+	"time-series-rag-agent/internal/exchange"
+)
 
 // FeatureCalculatorI allows mocking in tests.
 type FeatureCalculatorI interface {
-	Calculate(history []InputData) *PatternFeature
+	Calculate(history []exchange.WsRestCandle) *PatternFeature
 }
 
 // FeatureCalculator computes embeddings from a rolling window of candles.
@@ -24,7 +27,7 @@ func NewFeatureCalculator(symbol, interval string, vectorWindow int) *FeatureCal
 
 // Calculate returns a PatternFeature from the last (VectorWindow+1) candles.
 // Returns nil if history is too short.
-func (f *FeatureCalculator) Calculate(history []InputData) *PatternFeature {
+func (f *FeatureCalculator) Calculate(history []exchange.WsRestCandle) *PatternFeature {
 	reqLen := f.VectorWindow + 1
 	if len(history) < reqLen {
 		return nil

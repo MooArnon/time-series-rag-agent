@@ -1,9 +1,11 @@
 package embedding
 
+import "time-series-rag-agent/internal/exchange"
+
 // LabelCalculatorI allows mocking in tests.
 type LabelCalculatorI interface {
-	CalculateFromHistory(history []InputData) []LabelUpdate
-	CalculateLookahead(history []InputData, idx int, targetTime int64) []LabelUpdate
+	CalculateFromHistory(history []exchange.WsRestCandle) []LabelUpdate
+	CalculateLookahead(history []exchange.WsRestCandle, idx int, targetTime int64) []LabelUpdate
 }
 
 // LabelCalculator computes label updates for training data.
@@ -15,7 +17,7 @@ func NewLabelCalculator() *LabelCalculator {
 
 // CalculateFromHistory generates label updates for past candles based on recent data.
 // Used in streaming/live mode: each new candle unlocks labels for earlier candles.
-func (l *LabelCalculator) CalculateFromHistory(history []InputData) []LabelUpdate {
+func (l *LabelCalculator) CalculateFromHistory(history []exchange.WsRestCandle) []LabelUpdate {
 	updates := []LabelUpdate{}
 	n := len(history)
 	if n < 2 {
@@ -54,7 +56,7 @@ func (l *LabelCalculator) CalculateFromHistory(history []InputData) []LabelUpdat
 
 // CalculateLookahead generates labels by looking AHEAD from idx.
 // Used in bulk mode: we know the future, so we compute labels directly.
-func (l *LabelCalculator) CalculateLookahead(history []InputData, idx int, targetTime int64) []LabelUpdate {
+func (l *LabelCalculator) CalculateLookahead(history []exchange.WsRestCandle, idx int, targetTime int64) []LabelUpdate {
 	updates := []LabelUpdate{}
 	n := len(history)
 
@@ -91,7 +93,7 @@ func (l *LabelCalculator) CalculateLookahead(history []InputData, idx int, targe
 
 // --- helpers ---
 
-func (l *LabelCalculator) calcNextReturn(history []InputData, prevIdx, currIdx int) (LabelUpdate, bool) {
+func (l *LabelCalculator) calcNextReturn(history []exchange.WsRestCandle, prevIdx, currIdx int) (LabelUpdate, bool) {
 	prevClose := history[prevIdx].Close
 	currClose := history[currIdx].Close
 	if prevClose == 0 {
@@ -104,7 +106,7 @@ func (l *LabelCalculator) calcNextReturn(history []InputData, prevIdx, currIdx i
 	}, true
 }
 
-func closesSlice(history []InputData, from, to int) []float64 {
+func closesSlice(history []exchange.WsRestCandle, from, to int) []float64 {
 	prices := make([]float64, 0, to-from)
 	for i := from; i < to; i++ {
 		prices = append(prices, history[i].Close)

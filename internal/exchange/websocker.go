@@ -8,7 +8,7 @@ import (
 	"github.com/adshao/go-binance/v2/futures"
 )
 
-type CandleHandler func(candle Candle)
+type CandleHandler func(candle WsCandle)
 
 // --- Websocket ---
 func StartKlineWebsocket(ctx context.Context, symbol string, interval string, logger *slog.Logger, handler CandleHandler) error {

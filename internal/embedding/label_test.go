@@ -2,15 +2,16 @@ package embedding
 
 import (
 	"testing"
+	"time-series-rag-agent/internal/exchange"
 
 	"github.com/stretchr/testify/assert"
 )
 
-// makeHistoryWithTime creates InputData with explicit times and closes
-func makeHistoryWithTime(entries [][2]float64) []InputData {
-	history := make([]InputData, len(entries))
+// makeHistoryWithTime creates exchange.WsRestCandle with explicit times and closes
+func makeHistoryWithTime(entries [][2]float64) []exchange.WsRestCandle {
+	history := make([]exchange.WsRestCandle, len(entries))
 	for i, e := range entries {
-		history[i] = InputData{Time: int64(e[0]), Close: e[1]}
+		history[i] = exchange.WsRestCandle{Time: int64(e[0]), Close: e[1]}
 	}
 	return history
 }
@@ -22,7 +23,7 @@ func TestCalculateFromHistory_EmptyHistory_ReturnsEmpty(t *testing.T) {
 	lc := NewLabelCalculator()
 
 	// Act
-	result := lc.CalculateFromHistory([]InputData{})
+	result := lc.CalculateFromHistory([]exchange.WsRestCandle{})
 
 	// Assert
 	assert.Empty(t, result)

@@ -9,7 +9,7 @@ import (
 	"github.com/adshao/go-binance/v2/futures"
 )
 
-func FetchLatestCandles(klineService KlineService, symbol string, interval string, limit int) ([]RestOutput, error) {
+func FetchLatestCandles(klineService KlineService, symbol string, interval string, limit int) ([]RestCandle, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
@@ -20,8 +20,7 @@ func FetchLatestCandles(klineService KlineService, symbol string, interval strin
 		return nil, err
 	}
 
-	// Convert Binance Response -> []ai.InputData
-	data, err := parseKLinesToRestOutput(klines)
+	data, err := parseKLinesToRestCandle(klines)
 	if err != nil {
 		return nil, err
 	}
@@ -35,9 +34,9 @@ func FetchHistoryByTime(
 	interval string,
 	startTime time.Time,
 	endTime time.Time,
-) ([]RestOutput, error) {
+) ([]RestCandle, error) {
 
-	var allData []RestOutput
+	var allData []RestCandle
 	limit := 1000
 	currentStart := startTime.UnixMilli()
 	endMs := endTime.UnixMilli()
@@ -68,7 +67,7 @@ func FetchHistoryByTime(
 			cl, _ := strconv.ParseFloat(k.Close, 64)
 			vl, _ := strconv.ParseFloat(k.Volume, 64)
 
-			allData = append(allData, RestOutput{
+			allData = append(allData, RestCandle{
 				Time:   k.OpenTime / 1000,
 				Open:   op,
 				High:   hi,
@@ -98,8 +97,8 @@ func FetchHistoryByTime(
 	return allData, nil
 }
 
-func parseKLinesToRestOutput(klines []*futures.Kline) ([]RestOutput, error) {
-	data := make([]RestOutput, len(klines))
+func parseKLinesToRestCandle(klines []*futures.Kline) ([]RestCandle, error) {
+	data := make([]RestCandle, len(klines))
 	for i, k := range klines {
 		op, err := strconv.ParseFloat(k.Open, 64)
 		if err != nil {
@@ -122,7 +121,7 @@ func parseKLinesToRestOutput(klines []*futures.Kline) ([]RestOutput, error) {
 			return nil, fmt.Errorf("failed to parse Volume: %w", err)
 		}
 
-		data[i] = RestOutput{
+		data[i] = RestCandle{
 			Time:   k.OpenTime / 1000,
 			Open:   op,
 			High:   hi,

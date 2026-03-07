@@ -19,7 +19,7 @@ func WsHandler(handler CandleHandler) futures.WsKlineHandler {
 		if !event.Kline.IsFinal {
 			return
 		}
-		candle, err := parseWsKlineToCandle(event)
+		candle, err := parseWsKlineToWsCandle(event)
 		if err != nil {
 			log.Printf("[WS] error converting kline to candle: %v", err)
 			return
@@ -28,29 +28,29 @@ func WsHandler(handler CandleHandler) futures.WsKlineHandler {
 	}
 }
 
-func parseWsKlineToCandle(kline *futures.WsKlineEvent) (Candle, error) {
+func parseWsKlineToWsCandle(kline *futures.WsKlineEvent) (WsCandle, error) {
 
 	op, err := strconv.ParseFloat(kline.Kline.Open, 64)
 	if err != nil {
-		return Candle{}, fmt.Errorf("failed to parse Open price: %w", err)
+		return WsCandle{}, fmt.Errorf("failed to parse Open price: %w", err)
 	}
 	hi, err := strconv.ParseFloat(kline.Kline.High, 64)
 	if err != nil {
-		return Candle{}, fmt.Errorf("failed to parse High price: %w", err)
+		return WsCandle{}, fmt.Errorf("failed to parse High price: %w", err)
 	}
 	lo, err := strconv.ParseFloat(kline.Kline.Low, 64)
 	if err != nil {
-		return Candle{}, fmt.Errorf("failed to parse Low price: %w", err)
+		return WsCandle{}, fmt.Errorf("failed to parse Low price: %w", err)
 	}
 	cl, err := strconv.ParseFloat(kline.Kline.Close, 64)
 	if err != nil {
-		return Candle{}, fmt.Errorf("failed to parse Close price: %w", err)
+		return WsCandle{}, fmt.Errorf("failed to parse Close price: %w", err)
 	}
 	vl, err := strconv.ParseFloat(kline.Kline.Volume, 64)
 	if err != nil {
-		return Candle{}, fmt.Errorf("failed to parse Volume: %w", err)
+		return WsCandle{}, fmt.Errorf("failed to parse Volume: %w", err)
 	}
-	return Candle{
+	return WsCandle{
 		Time:   kline.Kline.StartTime / 1000,
 		Open:   op,
 		High:   hi,

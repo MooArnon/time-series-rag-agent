@@ -3,14 +3,15 @@ package embedding
 import (
 	"testing"
 	"time"
+	"time-series-rag-agent/internal/exchange"
 
 	"github.com/stretchr/testify/assert"
 )
 
-func makeHistory(closes []float64) []InputData {
-	history := make([]InputData, len(closes))
+func makeHistory(closes []float64) []exchange.WsRestCandle {
+	history := make([]exchange.WsRestCandle, len(closes))
 	for i, c := range closes {
-		history[i] = InputData{
+		history[i] = exchange.WsRestCandle{
 			Time:  int64(1000000 + i*900),
 			Close: c,
 		}
@@ -49,7 +50,7 @@ func TestCalculate_EmptyHistory_ReturnsNil(t *testing.T) {
 	fc := NewFeatureCalculator("BTCUSDT", "1h", 3)
 
 	// Act
-	result := fc.Calculate([]InputData{})
+	result := fc.Calculate([]exchange.WsRestCandle{})
 
 	// Assert
 	assert.Nil(t, result)
@@ -86,7 +87,7 @@ func TestCalculate_Interval_PropagatedToFeature(t *testing.T) {
 func TestCalculate_Time_EqualsLastCandleTime(t *testing.T) {
 	// Arrange
 	fc := NewFeatureCalculator("BTCUSDT", "1h", 2)
-	history := []InputData{
+	history := []exchange.WsRestCandle{
 		{Time: 1000, Close: 100.0},
 		{Time: 2000, Close: 110.0},
 		{Time: 3000, Close: 120.0},

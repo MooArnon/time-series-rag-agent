@@ -5,15 +5,6 @@ import (
 	"time"
 )
 
-type InputData struct {
-	Time   int64
-	Open   float64
-	High   float64
-	Low    float64
-	Close  float64
-	Volume float64
-}
-
 type PatternFeature struct {
 	Time       time.Time `json:"time"`
 	Symbol     string    `json:"symbol"`
