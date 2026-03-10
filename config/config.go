@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log"
 	"os"
+	"strconv"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -12,8 +13,41 @@ import (
 )
 
 type AppConfig struct {
-	Market BinanceMarketConfig
+	Market     BinanceMarketConfig
+	Database   DatabaseConfig
+	OpenRouter OpenRouterConfig
+	Discord    DiscordConfig
+	Agent      AgentConfig
+	Que        QueConfig
+	Regime     RegimeConfig
+	LLM        LLMConfig
 }
+
+type RegimeConfig struct {
+	ADXTrendThreshold    float64
+	ADXRangeThreshold    float64
+	ATRVolatileThreshold float64
+	BandWidthThreshold   float64
+	BandWidthPeriod      int
+}
+
+type AgentConfig struct {
+	AviableTradeRatio float64
+	Leverage          int
+	SLPercentage      float64
+	TPPercentage      float64
+	StopROI           float64
+	StopLossROI       float64
+}
+
+type LLMConfig struct {
+	NumPnLLookback int
+}
+
+type QueConfig struct {
+	QueUrl string
+}
+
 type AwsSecretData struct {
 	TRADING_BOT_DB_POSTGRESQL_HOST     string `json:"TRADING_BOT_DB_POSTGRESQL_HOST"`
 	TRADING_BOT_DB_POSTGRESQL_PASSWORD string `json:"TRADING_BOT_DB_POSTGRESQL_PASSWORD"`
@@ -23,24 +57,95 @@ type AwsSecretData struct {
 }
 
 type BinanceMarketConfig struct {
-	BINANCE_API_KEY    string
-	BINANCE_API_SECRET string
+	ApiKey    string
+	ApiSecret string
 }
 
-func LoadConfig() AppConfig {
-	cfg := AppConfig{
+type DiscordConfig struct {
+	DISCORD_ALERT_WEBHOOK_URL  string
+	DISCORD_NOTIFY_WEBHOOK_URL string
+}
+
+type OpenRouterConfig struct {
+	ApiKey string
+}
+
+type DatabaseConfig struct {
+	DBHost     string
+	DBPort     int
+	DBUser     string
+	DBPassword string
+	DBName     string
+}
+
+func LoadConfig() *AppConfig {
+	// 1. Initialize the base config with Env vars (fallbacks or non-secret values)
+	cfg := &AppConfig{
 		Market: BinanceMarketConfig{
-			BINANCE_API_KEY:    "",
-			BINANCE_API_SECRET: "",
+			// These might be empty initially if they are only in AWS
+			ApiKey:    getEnv("BINANCE_API_KEY", ""),
+			ApiSecret: getEnv("BINANCE_API_SECRET", ""),
+		},
+		Database: DatabaseConfig{
+			DBHost:     getEnv("DB_HOST", ""),
+			DBPort:     getEnvAsInt("DB_PORT", 5432),
+			DBUser:     getEnv("DB_USER", ""),
+			DBPassword: getEnv("DB_PASSWORD", ""), // Will be overwritten
+			DBName:     getEnv("DB_NAME", ""),
+		},
+		OpenRouter: OpenRouterConfig{
+			ApiKey: getEnv("OPENAI_API_KEY", ""),
+		},
+		Discord: DiscordConfig{
+			DISCORD_ALERT_WEBHOOK_URL:  getEnv("DISCORD_ALERT_WEBHOOK_URL", ""),
+			DISCORD_NOTIFY_WEBHOOK_URL: getEnv("DISCORD_NOTIFY_WEBHOOK_URL", ""),
+		},
+		Agent: AgentConfig{
+			AviableTradeRatio: getEnvAsFloat("AVIABLE_TRADE_RATIO", 0.90),
+			Leverage:          getEnvAsInt("LEVERAGE", 5),
+			SLPercentage:      getEnvAsFloat("SL_PERCENTAGE", 0.03),
+			TPPercentage:      getEnvAsFloat("TP_PERCENTAGE", 0.7),
+			StopROI:           getEnvAsFloat("STOP_ROI", 5.0),
+			StopLossROI:       getEnvAsFloat("STOP_LOSS_ROI", 10.0),
+		},
+		Que: QueConfig{
+			QueUrl: getEnv("SQS_URL", ""),
+		},
+		Regime: RegimeConfig{
+			ADXTrendThreshold:    getEnvAsFloat("ADX_TREND_THRESHOLD", 25.0),
+			ADXRangeThreshold:    getEnvAsFloat("ADX_RANGE_THRESHOLD", 20.0),
+			ATRVolatileThreshold: getEnvAsFloat("ATR_VOLATILE_THRESHOLD", 1.5),
+			BandWidthThreshold:   getEnvAsFloat("BANDWIDTH_THRESHOLD", 0.025),
+			BandWidthPeriod:      getEnvAsInt("BANDWIDTH_PERIOD", 30),
+		},
+		LLM: LLMConfig{
+			NumPnLLookback: getEnvAsInt("NUM_PNL_LOOKBACK", 15),
 		},
 	}
 
-	// Load config from environment variables
+	// 2. Fetch Secrets from AWS to overwrite sensitive fields
 	secretName := os.Getenv("AWS_SECRET_NAME")
-	secrets := fetchAwsSecrets(secretName)
-	if cfg.Market.BINANCE_API_KEY == "" || cfg.Market.BINANCE_API_SECRET == "" {
-		cfg.Market.BINANCE_API_KEY = secrets.BinanceApiKey
-		cfg.Market.BINANCE_API_SECRET = secrets.BinanceApiSecret
+	if secretName != "" {
+		secrets := fetchAwsSecrets(secretName)
+
+		// Overwrite fields if the secret value exists
+		if secrets.TRADING_BOT_DB_POSTGRESQL_HOST != "" {
+			cfg.Database.DBHost = secrets.TRADING_BOT_DB_POSTGRESQL_HOST
+		}
+		if secrets.TRADING_BOT_DB_POSTGRESQL_PASSWORD != "" {
+			cfg.Database.DBPassword = secrets.TRADING_BOT_DB_POSTGRESQL_PASSWORD
+		}
+		if secrets.BinanceApiKey != "" {
+			cfg.Market.ApiKey = secrets.BinanceApiKey
+		}
+		if secrets.BinanceApiSecret != "" {
+			cfg.Market.ApiSecret = secrets.BinanceApiSecret
+		}
+		if secrets.OPENAI_API_KEY != "" {
+			cfg.OpenRouter.ApiKey = secrets.OPENAI_API_KEY
+		}
+	} else {
+		log.Println("Warning: AWS_SECRET_NAME not set. Using environment variables only.")
 	}
 
 	return cfg
@@ -76,4 +181,29 @@ func fetchAwsSecrets(secretName string) AwsSecretData {
 	}
 
 	return secretData
+}
+
+func getEnv(key string, fallback string) string {
+	if value, exists := os.LookupEnv(key); exists {
+		return value
+	}
+	return fallback
+}
+
+func getEnvAsInt(key string, fallback int) int {
+	if valueStr, exists := os.LookupEnv(key); exists {
+		if value, err := strconv.Atoi(valueStr); err == nil {
+			return value
+		}
+	}
+	return fallback
+}
+
+func getEnvAsFloat(key string, fallback float64) float64 {
+	if valueStr, exists := os.LookupEnv(key); exists {
+		if value, err := strconv.ParseFloat(valueStr, 64); err == nil {
+			return value
+		}
+	}
+	return fallback
 }

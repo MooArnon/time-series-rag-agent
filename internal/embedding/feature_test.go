@@ -230,6 +230,52 @@ func TestCalculate_UsesOnlyLastWindow_ClosePriceIsLast(t *testing.T) {
 	assert.Equal(t, 999.0, result.ClosePrice)
 }
 
+func TestCalculate_HistoryExactlyVectorWindow_ReturnsNil(t *testing.T) {
+	// Arrange — reqLen = VectorWindow+1, history = VectorWindow → ไม่พอ
+	fc := NewFeatureCalculator("BTCUSDT", "1h", 4)
+	history := makeHistory([]float64{100.0, 102.0, 104.0, 106.0}) // len=4 == vectorWindow
+
+	// Act
+	result := fc.Calculate(history)
+
+	// Assert
+	assert.Nil(t, result)
+}
+
+func TestCalculate_ZeroClosePrice_EmbeddingFinite(t *testing.T) {
+	// Arrange — PlanckConstant prevents log(0), should not panic or NaN
+	fc := NewFeatureCalculator("BTCUSDT", "1h", 3)
+	history := makeHistory([]float64{0.0, 100.0, 110.0, 120.0})
+
+	// Act
+	result := fc.Calculate(history)
+
+	// Assert
+	assert.NotNil(t, result)
+	for _, v := range result.Embedding {
+		assert.False(t, isNaN(v), "should not be NaN on zero close")
+		assert.False(t, isInf(v), "should not be Inf on zero close")
+	}
+}
+
+func TestCalculate_LargerHistory_OnlyLastWindowAffectsEmbedding(t *testing.T) {
+	// Arrange — ยืนยันว่า candle ก่อน window ไม่กระทบ embedding เลย
+	fc := NewFeatureCalculator("BTCUSDT", "1h", 3)
+
+	base := makeHistory([]float64{100.0, 110.0, 121.0, 133.1})
+	withPrefix := makeHistory([]float64{1.0, 2.0, 3.0, 100.0, 110.0, 121.0, 133.1})
+
+	// Act
+	resultBase := fc.Calculate(base)
+	resultWithPrefix := fc.Calculate(withPrefix)
+
+	// Assert
+	assert.InDeltaSlice(t, resultBase.Embedding, resultWithPrefix.Embedding, 1e-9)
+	assert.Equal(t, resultBase.ClosePrice, resultWithPrefix.ClosePrice)
+}
+
+// -- test calculator
+
 // --- helpers ---
 
 func isNaN(v float64) bool {

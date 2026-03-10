@@ -21,21 +21,21 @@ func (m *mockKlineService) FetchKlines(ctx context.Context, symbol, interval str
 
 // --- Tests ---
 func TestFetchLatestCandles_Success(t *testing.T) {
-
 	// Arrange
 	mock := &mockKlineService{
 		returnData: []*futures.Kline{
 			{OpenTime: 1000000, Open: "100.0", High: "105.0", Low: "99.0", Close: "103.0", Volume: "500.0"},
 			{OpenTime: 1000900, Open: "103.0", High: "108.0", Low: "102.0", Close: "107.0", Volume: "600.0"},
+			{OpenTime: 1001800, Open: "107.0", High: "110.0", Low: "106.0", Close: "109.0", Volume: "700.0"}, // ← incomplete candle
 		},
 	}
 
 	// Act
-	candles, err := FetchLatestCandles(mock, "ETHUSDT", "15m", 2)
+	candles, err := FetchLatestCandles(mock, "ETHUSDT", "15m", 3)
 
 	// Assert
 	assert.NoError(t, err)
-	assert.Len(t, candles, 2)
+	assert.Len(t, candles, 2) // drop last → 2
 	assert.Equal(t, 103.0, candles[0].Close)
 	assert.Equal(t, 107.0, candles[1].Close)
 }

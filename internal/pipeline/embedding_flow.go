@@ -1,21 +1,64 @@
 package pipeline
 
 import (
-	"fmt"
 	"log/slog"
 
 	"time-series-rag-agent/internal/embedding"
 	"time-series-rag-agent/internal/exchange"
 )
 
-func NewEmbeddingPipeline(logger slog.Logger, wsCandle []exchange.WsCandle, restCandle []exchange.RestCandle, symbol string, interval string) MarketPattern {
+func NewEmbeddingPipeline(
+	logger slog.Logger,
+	wsCandle []exchange.WsCandle,
+	restCandle []exchange.RestCandle,
+	symbol string,
+	interval string,
+) (*embedding.PatternFeature, []embedding.LabelUpdate) {
 	logger.Info("[EmbeddingPipeline] Starting Embedding Pipeline")
-	candle := embedding.MergeCandles(wsCandle, restCandle)
-	logger.Info(fmt.Sprintln("[EmbeddingPipeline] candle: ", candle))
+	// -- Features -- //
+	fc := embedding.NewFeatureCalculator(symbol, interval, len(restCandle))
+	wsRestCandle := embedding.MergeCandles(wsCandle, restCandle)
+	feature := fc.Calculate(wsRestCandle)
 
-	fc := embedding.NewFeatureCalculator(symbol, interval, len(candle))
-	feature := fc.Calculate(candle)
-	logger.Info(fmt.Sprint("[EmbeddingPipeline] ", feature))
+	// -- Labels -- //
+	lc := embedding.NewLabelCalculator()
+	label := lc.CalculateFromHistory(wsRestCandle)
 
-	return MarketPattern{}
+	return feature, label
+}
+
+func NewBackfillEmbeddingPipeline(
+	logger slog.Logger,
+	restCandles []exchange.RestCandle,
+	symbol string,
+	interval string,
+	vectorWindow int,
+) ([]embedding.PatternFeature, []embedding.LabelUpdate) {
+	logger.Info("[EmbeddingPipeline] Starting Backfill Pipeline")
+
+	fc := embedding.NewFeatureCalculator(symbol, interval, vectorWindow)
+	lc := embedding.NewLabelCalculator()
+
+	// Convert once
+	inputData := make([]exchange.WsRestCandle, len(restCandles))
+	for i, c := range restCandles {
+		inputData[i] = exchange.WsRestCandle{
+			Time: c.Time, Open: c.Open, High: c.High,
+			Low: c.Low, Close: c.Close, Volume: c.Volume,
+		}
+	}
+
+	var features []embedding.PatternFeature
+	var labels []embedding.LabelUpdate
+
+	for i := vectorWindow; i < len(inputData); i++ {
+		feature := fc.Calculate(inputData[i-vectorWindow : i+1])
+		if feature == nil {
+			continue
+		}
+		features = append(features, *feature)
+		labels = append(labels, lc.CalculateLookahead(inputData, i, feature.Time.Unix())...)
+	}
+
+	return features, labels
 }
