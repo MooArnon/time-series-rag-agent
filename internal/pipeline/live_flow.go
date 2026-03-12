@@ -17,7 +17,8 @@ func NewLivePipeline(logger slog.Logger, wsCandle []exchange.WsCandle, symbol st
 	binanceClient := futures.NewClient(cfg.Market.ApiKey, cfg.Market.ApiSecret)
 	adapter := exchange.NewBinanceAdapter(binanceClient)
 
-	restCandle, err := exchange.FetchLatestCandles(adapter, symbol, interval, vectorSize+1)
+	// +99 to buffer at plot
+	restCandle, err := exchange.FetchLatestCandles(adapter, symbol, interval, vectorSize+1+99)
 	if err != nil {
 		logger.Error(fmt.Sprintln("[LivePipeline] Error at rest candle fetched: ", err))
 		return err
@@ -25,7 +26,11 @@ func NewLivePipeline(logger slog.Logger, wsCandle []exchange.WsCandle, symbol st
 	logger.Info(fmt.Sprintln("[LivePipeline] candle: ", restCandle))
 
 	// -- Embedding -- //
-	feature, label := NewEmbeddingPipeline(logger, wsCandle, restCandle, symbol, interval)
+	feature, label, wsRestCandle := NewEmbeddingPipeline(logger, wsCandle, restCandle, vectorSize, symbol, interval)
+	if feature == nil {
+		logger.Error("[LivePipeline] feature is nil, skipping upsert")
+		return fmt.Errorf("feature is nil")
+	}
 	logger.Info(fmt.Sprint("[LivePipeline] Feature: ", feature))
 	logger.Info(fmt.Sprint("[LivePipeline] Label: ", label))
 
@@ -37,16 +42,35 @@ func NewLivePipeline(logger slog.Logger, wsCandle []exchange.WsCandle, symbol st
 		cfg.Database.DBPort,
 		cfg.Database.DBName,
 	)
-	db, err := postgresql.NewPostgresDB(connString)
+	dbIngest, err := postgresql.NewPostgresDB(connString, logger)
+	if err != nil {
+		logger.Error(
+			fmt.Sprintln(
+				"[LivePipeline] Cannot establish connection for candle ingestion: ",
+				err,
+			),
+		)
+	}
+	defer dbIngest.Close()
 	if err != nil {
 		logger.Error(fmt.Sprintln("[LivePipeline] Error at PostgreSQL connection: ", err))
 		return err
 	}
 	dbCtx := context.TODO()
-	db.UpsertFeature(dbCtx, *feature)
+	dbIngest.UpsertFeature(dbCtx, *feature)
 	logger.Info("[LivePipeline] Ingested feature")
-	db.UpsertLabels(dbCtx, symbol, interval, label)
+	dbIngest.UpsertLabels(dbCtx, symbol, interval, label)
 	logger.Info("[LivePipeline] Ingested label")
+
+	output, err := NewLLMPatternAgent(logger, cfg.Database, symbol, interval, wsRestCandle, feature.Embedding, cfg.LLM.TopN)
+	if err != nil {
+		logger.Error(
+			fmt.Sprintln("[LivePipeline] Error with ", err),
+		)
+		return err
+	}
+
+	fmt.Print(output)
 
 	return nil
 }

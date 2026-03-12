@@ -9,6 +9,8 @@ import (
 	"github.com/pgvector/pgvector-go"
 
 	"time-series-rag-agent/internal/embedding"
+
+	"log/slog"
 )
 
 const upsertPatternSQL = `
@@ -27,16 +29,17 @@ ON CONFLICT (time, symbol, interval) DO UPDATE SET
 `
 
 type PatternStore struct {
-	db *pgxpool.Pool
+	db     *pgxpool.Pool
+	logger slog.Logger
 }
 
-func NewPostgresDB(connString string) (*PatternStore, error) {
+func NewPostgresDB(connString string, logger slog.Logger) (*PatternStore, error) {
 	ctx := context.Background()
 	pool, err := pgxpool.New(ctx, connString)
 	if err != nil {
 		return nil, err
 	}
-	return &PatternStore{db: pool}, nil
+	return &PatternStore{db: pool, logger: logger}, nil
 }
 
 // UpsertFeature inserts or updates embedding + close_price for a given candle time.
@@ -45,9 +48,6 @@ func (s *PatternStore) UpsertFeature(ctx context.Context, f embedding.PatternFea
 	for i, v := range f.Embedding {
 		vec[i] = float32(v)
 	}
-
-	fmt.Println("vec: ", vec)
-	fmt.Println("LenVec: ", len(vec))
 
 	_, err := s.db.Exec(ctx, upsertPatternSQL,
 		f.Time.Unix(),
@@ -66,23 +66,62 @@ func (s *PatternStore) UpsertFeature(ctx context.Context, f embedding.PatternFea
 // UpsertLabels updates label columns for past candles.
 // Each LabelUpdate targets a specific (TargetTime, symbol, interval) row.
 func (s *PatternStore) UpsertLabels(ctx context.Context, symbol, interval string, labels []embedding.LabelUpdate) error {
+	if len(labels) == 0 {
+		return nil
+	}
+
+	// group by column เพราะแต่ละ column ต้องใช้ SQL ต่างกัน
+	grouped := map[string][]embedding.LabelUpdate{}
 	for _, l := range labels {
-		col, err := validateLabelColumn(l.Column)
-		if err != nil {
+		if _, err := validateLabelColumn(l.Column); err != nil {
 			return err
 		}
+		grouped[l.Column] = append(grouped[l.Column], l)
+	}
 
-		// Dynamic column name is safe here because validateLabelColumn whitelists it.
+	for col, group := range grouped {
+		if err := s.bulkUpsertLabelColumn(ctx, symbol, interval, col, group); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *PatternStore) bulkUpsertLabelColumn(ctx context.Context, symbol, interval, col string, labels []embedding.LabelUpdate) error {
+	const batchSize = 1000
+
+	for i := 0; i < len(labels); i += batchSize {
+		end := i + batchSize
+		if end > len(labels) {
+			end = len(labels)
+		}
+		batch := labels[i:end]
+
+		times := make([]int64, len(batch))
+		values := make([]float64, len(batch))
+		symbols := make([]string, len(batch))
+		intervals := make([]string, len(batch))
+
+		for j, l := range batch {
+			times[j] = l.TargetTime
+			values[j] = l.Value
+			symbols[j] = symbol
+			intervals[j] = interval
+		}
+
 		sql := fmt.Sprintf(`
-			INSERT INTO market_pattern_go (time, symbol, interval, %s)
-			VALUES ($1, $2, $3, $4)
-			ON CONFLICT (time, symbol, interval) DO UPDATE SET
-				%s = EXCLUDED.%s
-		`, col, col, col)
+            INSERT INTO market_pattern_go (time, symbol, interval, %s)
+            SELECT
+                UNNEST($1::bigint[]),
+                UNNEST($2::text[]),
+                UNNEST($3::text[]),
+                UNNEST($4::float8[])
+            ON CONFLICT (time, symbol, interval) DO UPDATE SET
+                %s = EXCLUDED.%s
+        `, col, col, col)
 
-		_, err = s.db.Exec(ctx, sql, l.TargetTime, symbol, interval, l.Value)
-		if err != nil {
-			return fmt.Errorf("UpsertLabels [%s t=%d]: %w", col, l.TargetTime, err)
+		if _, err := s.db.Exec(ctx, sql, times, symbols, intervals, values); err != nil {
+			return fmt.Errorf("bulkUpsertLabelColumn [%s batch %d-%d]: %w", col, i, end, err)
 		}
 	}
 	return nil
@@ -94,6 +133,7 @@ func (s *PatternStore) QueryTopN(ctx context.Context, symbol, interval string, q
 		SELECT
 			time, symbol, interval,
 			close_price, next_return, next_slope_3, next_slope_5,
+			embedding,
 			embedding <=> $1 AS distance
 		FROM market_pattern_go
 		WHERE symbol   = $2
@@ -103,7 +143,9 @@ func (s *PatternStore) QueryTopN(ctx context.Context, symbol, interval string, q
 		LIMIT $4
 	`
 
+	s.logger.Info(fmt.Sprintf("Querying with param: symbol=%s, interval=%s, topN=%d", symbol, interval, topN))
 	rows, err := s.db.Query(ctx, sql, toVectorLiteral(queryEmbedding), symbol, interval, topN)
+
 	if err != nil {
 		return nil, fmt.Errorf("QueryTopN: %w", err)
 	}
@@ -119,9 +161,10 @@ func (s *PatternStore) QueryTopN(ctx context.Context, symbol, interval string, q
 			nextReturn *float64
 			nextSlope3 *float64
 			nextSlope5 *float64
+			Embedding  pgvector.Vector
 			distance   float64
 		)
-		if err := rows.Scan(&unixTime, &sym, &intv, &closePrice, &nextReturn, &nextSlope3, &nextSlope5, &distance); err != nil {
+		if err := rows.Scan(&unixTime, &sym, &intv, &closePrice, &nextReturn, &nextSlope3, &nextSlope5, &Embedding, &distance); err != nil {
 			return nil, fmt.Errorf("QueryTopN scan: %w", err)
 		}
 		results = append(results, embedding.PatternLabel{
@@ -132,6 +175,7 @@ func (s *PatternStore) QueryTopN(ctx context.Context, symbol, interval string, q
 			NextReturn: derefOr(nextReturn, 0),
 			NextSlope3: derefOr(nextSlope3, 0),
 			NextSlope5: derefOr(nextSlope5, 0),
+			Embedding:  Embedding,
 			Distance:   distance,
 		})
 	}
@@ -185,6 +229,24 @@ func (s *PatternStore) BulkUpsertFeature(ctx context.Context, features []embeddi
 		return nil
 	}
 
+	const batchSize = 1000
+
+	for i := 0; i < len(features); i += batchSize {
+		s.logger.Info(fmt.Sprintln("Upserting feature: ", i))
+		end := i + batchSize
+		if end > len(features) {
+			end = len(features)
+		}
+		batch := features[i:end]
+
+		if err := s.upsertFeatureBatch(ctx, batch); err != nil {
+			return fmt.Errorf("BulkUpsertFeature batch %d-%d: %w", i, end, err)
+		}
+	}
+	return nil
+}
+
+func (s *PatternStore) upsertFeatureBatch(ctx context.Context, features []embedding.PatternFeature) error {
 	times := make([]int64, len(features))
 	symbols := make([]string, len(features))
 	intervals := make([]string, len(features))
@@ -200,19 +262,23 @@ func (s *PatternStore) BulkUpsertFeature(ctx context.Context, features []embeddi
 	}
 
 	_, err := s.db.Exec(ctx, `
-		INSERT INTO market_pattern_go (time, symbol, interval, embedding, close_price)
-		SELECT
-			UNNEST($1::bigint[]),
-			UNNEST($2::text[]),
-			UNNEST($3::text[]),
-			UNNEST($4::text[])::vector,
-			UNNEST($5::float8[])
-		ON CONFLICT (time, symbol, interval) DO UPDATE SET
-			embedding   = EXCLUDED.embedding,
-			close_price = EXCLUDED.close_price
-	`, times, symbols, intervals, embeddings, closePrices)
+        INSERT INTO market_pattern_go (time, symbol, interval, embedding, close_price)
+        SELECT
+            UNNEST($1::bigint[]),
+            UNNEST($2::text[]),
+            UNNEST($3::text[]),
+            UNNEST($4::text[])::vector,
+            UNNEST($5::float8[])
+        ON CONFLICT (time, symbol, interval) DO UPDATE SET
+            embedding   = EXCLUDED.embedding,
+            close_price = EXCLUDED.close_price
+    `, times, symbols, intervals, embeddings, closePrices)
 	if err != nil {
-		return fmt.Errorf("BulkUpsertFeature: %w", err)
+		return err
 	}
 	return nil
+}
+
+func (s *PatternStore) Close() {
+	s.db.Close()
 }

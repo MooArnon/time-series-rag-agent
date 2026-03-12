@@ -22,3 +22,9 @@ type MarketPattern struct {
 	Feature Feature
 	Label   Label
 }
+
+type LLMPatternPipelineOutPut struct {
+	Signal     string
+	Reason     string
+	Confidence float64
+}

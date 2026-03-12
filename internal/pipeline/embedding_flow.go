@@ -11,20 +11,23 @@ func NewEmbeddingPipeline(
 	logger slog.Logger,
 	wsCandle []exchange.WsCandle,
 	restCandle []exchange.RestCandle,
+	vectorSize int,
 	symbol string,
 	interval string,
-) (*embedding.PatternFeature, []embedding.LabelUpdate) {
+) (*embedding.PatternFeature, []embedding.LabelUpdate, []exchange.WsRestCandle) {
 	logger.Info("[EmbeddingPipeline] Starting Embedding Pipeline")
 	// -- Features -- //
-	fc := embedding.NewFeatureCalculator(symbol, interval, len(restCandle))
+	fc := embedding.NewFeatureCalculator(symbol, interval, vectorSize)
 	wsRestCandle := embedding.MergeCandles(wsCandle, restCandle)
-	feature := fc.Calculate(wsRestCandle)
+
+	featureCalculateCandle := wsRestCandle[:vectorSize+1]
+	feature := fc.Calculate(featureCalculateCandle)
 
 	// -- Labels -- //
 	lc := embedding.NewLabelCalculator()
-	label := lc.CalculateFromHistory(wsRestCandle)
+	label := lc.CalculateFromHistory(featureCalculateCandle)
 
-	return feature, label
+	return feature, label, wsRestCandle
 }
 
 func NewBackfillEmbeddingPipeline(

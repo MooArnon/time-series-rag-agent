@@ -7,10 +7,10 @@ import (
 
 const (
 	SYMBOL        = "BTCUSDT"
-	INTERVAL      = "15m"
+	INTERVAL      = "1m"
 	VECTOR_WINDOW = 30
 	FETCH_LIMIT   = 2000
-	DAY_LOOK_BACK = 365
+	DAY_LOOK_BACK = 20
 )
 
 func main() {

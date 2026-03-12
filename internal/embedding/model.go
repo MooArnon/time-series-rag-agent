@@ -3,6 +3,8 @@ package embedding
 import (
 	"math"
 	"time"
+
+	"github.com/pgvector/pgvector-go"
 )
 
 type PatternFeature struct {
@@ -14,15 +16,15 @@ type PatternFeature struct {
 }
 
 type PatternLabel struct {
-	Time       time.Time `json:"time"`
-	Symbol     string    `json:"symbol"`
-	Interval   string    `json:"interval"`
-	ClosePrice float64   `json:"close_price"`
-	NextReturn float64   `json:"next_return"`
-	NextSlope3 float64   `json:"next_slope_3"`
-	NextSlope5 float64   `json:"next_slope_5"`
-	Embedding  []float64 `json:"embedding"`
-	Distance   float64   `json:"distance"`
+	Time       time.Time       `json:"time"`
+	Symbol     string          `json:"symbol"`
+	Interval   string          `json:"interval"`
+	ClosePrice float64         `json:"close_price"`
+	NextReturn float64         `json:"next_return"`
+	NextSlope3 float64         `json:"next_slope_3"`
+	NextSlope5 float64         `json:"next_slope_5"`
+	Embedding  pgvector.Vector `json:"embedding"`
+	Distance   float64         `json:"distance"`
 }
 
 type LabelUpdate struct {

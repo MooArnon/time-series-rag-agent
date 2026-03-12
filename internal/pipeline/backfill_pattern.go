@@ -24,7 +24,6 @@ func NewBackfillPipeline(logger slog.Logger, symbol string, interval string, lim
 		logger.Error(fmt.Sprintln("[LivePipeline] Error at rest candle fetched: ", err))
 		return err
 	}
-	logger.Info(fmt.Sprintln("[LivePipeline] candle: ", restCandle))
 
 	feature, label := NewBackfillEmbeddingPipeline(logger, restCandle, symbol, interval, vectorWindow)
 
@@ -36,7 +35,7 @@ func NewBackfillPipeline(logger slog.Logger, symbol string, interval string, lim
 		cfg.Database.DBPort,
 		cfg.Database.DBName,
 	)
-	db, err := postgresql.NewPostgresDB(connString)
+	db, err := postgresql.NewPostgresDB(connString, logger)
 	if err != nil {
 		logger.Error(fmt.Sprintln("[LivePipeline] Error at PostgreSQL connection: ", err))
 		return err
