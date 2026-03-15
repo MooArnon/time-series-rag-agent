@@ -62,7 +62,7 @@ func NewLivePipeline(logger slog.Logger, wsCandle []exchange.WsCandle, symbol st
 	dbIngest.UpsertLabels(dbCtx, symbol, interval, label)
 	logger.Info("[LivePipeline] Ingested label")
 
-	output, err := NewLLMPatternAgent(logger, cfg.Database, symbol, interval, wsRestCandle, feature.Embedding, cfg.LLM.TopN)
+	output, err := NewLLMPatternAgent(binanceClient, logger, cfg, cfg.Database, cfg.OpenRouter, symbol, interval, wsRestCandle, feature.Embedding, cfg.LLM.TopN)
 	if err != nil {
 		logger.Error(
 			fmt.Sprintln("[LivePipeline] Error with ", err),
