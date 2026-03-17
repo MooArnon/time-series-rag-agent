@@ -33,8 +33,7 @@ type PatternStore struct {
 	logger slog.Logger
 }
 
-func NewPostgresDB(connString string, logger slog.Logger) (*PatternStore, error) {
-	ctx := context.Background()
+func NewPostgresDB(ctx context.Context, connString string, logger slog.Logger) (*PatternStore, error) {
 	pool, err := pgxpool.New(ctx, connString)
 	if err != nil {
 		return nil, err

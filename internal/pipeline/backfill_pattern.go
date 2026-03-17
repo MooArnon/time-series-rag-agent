@@ -12,8 +12,8 @@ import (
 	"github.com/adshao/go-binance/v2/futures"
 )
 
-func NewBackfillPipeline(logger slog.Logger, symbol string, interval string, limit int, vectorWindow int, dayLookback int) error {
-	logger.Info("[LivePipeline] Starting Embedding Pipeline")
+func NewBackfillPipeline(ctx context.Context, logger *slog.Logger, symbol string, interval string, limit int, vectorWindow int, dayLookback int) error {
+	logger.Info("[BackfillPipeline] Starting Embedding Pipeline")
 	cfg := config.LoadConfig()
 	binanceClient := futures.NewClient(cfg.Market.ApiKey, cfg.Market.ApiSecret)
 
@@ -21,13 +21,12 @@ func NewBackfillPipeline(logger slog.Logger, symbol string, interval string, lim
 	startTime := endTime.AddDate(0, 0, -dayLookback)
 	restCandle, err := exchange.FetchHistoryByTime(binanceClient, symbol, interval, startTime, endTime)
 	if err != nil {
-		logger.Error(fmt.Sprintln("[LivePipeline] Error at rest candle fetched: ", err))
+		logger.Error(fmt.Sprintf("[BackfillPipeline] REST candle fetch: %v", err))
 		return err
 	}
 
-	feature, label := NewBackfillEmbeddingPipeline(logger, restCandle, symbol, interval, vectorWindow)
+	feature, label := NewBackfillEmbeddingPipeline(*logger, restCandle, symbol, interval, vectorWindow)
 
-	// -- Save to DB -- //
 	connString := fmt.Sprintf("postgres://%s:%s@%s:%d/%s",
 		cfg.Database.DBUser,
 		cfg.Database.DBPassword,
@@ -35,16 +34,24 @@ func NewBackfillPipeline(logger slog.Logger, symbol string, interval string, lim
 		cfg.Database.DBPort,
 		cfg.Database.DBName,
 	)
-	db, err := postgresql.NewPostgresDB(connString, logger)
+	db, err := postgresql.NewPostgresDB(ctx, connString, *logger)
 	if err != nil {
-		logger.Error(fmt.Sprintln("[LivePipeline] Error at PostgreSQL connection: ", err))
+		logger.Error(fmt.Sprintf("[BackfillPipeline] DB connection: %v", err))
 		return err
 	}
-	dbCtx := context.TODO()
-	db.BulkUpsertFeature(dbCtx, feature)
-	logger.Info("[LivePipeline] Ingested feature")
-	db.UpsertLabels(dbCtx, symbol, interval, label)
-	logger.Info("[LivePipeline] Ingested label")
+	defer db.Close()
+
+	if err := db.BulkUpsertFeature(ctx, feature); err != nil {
+		logger.Error(fmt.Sprintf("[BackfillPipeline] BulkUpsertFeature: %v", err))
+		return err
+	}
+	logger.Info("[BackfillPipeline] Ingested feature")
+
+	if err := db.UpsertLabels(ctx, symbol, interval, label); err != nil {
+		logger.Error(fmt.Sprintf("[BackfillPipeline] UpsertLabels: %v", err))
+		return err
+	}
+	logger.Info("[BackfillPipeline] Ingested label")
 
 	return nil
 }

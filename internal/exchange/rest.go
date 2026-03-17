@@ -9,13 +9,11 @@ import (
 	"github.com/adshao/go-binance/v2/futures"
 )
 
-func FetchLatestCandles(klineService KlineService, symbol string, interval string, limit int) ([]RestCandle, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+func FetchLatestCandles(ctx context.Context, klineService KlineService, symbol string, interval string, limit int) ([]RestCandle, error) {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	// Call /fapi/v1/klines
 	klines, err := klineService.FetchKlines(ctx, symbol, interval, limit)
-
 	if err != nil {
 		return nil, err
 	}

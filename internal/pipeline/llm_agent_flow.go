@@ -21,7 +21,7 @@ const (
 	LATEST_CANDLE_PLOT = 45
 )
 
-func NewLLMPatternAgent(futureClient *futures.Client, logger slog.Logger, appConfig *config.AppConfig, dbConfig config.DatabaseConfig, llmConfig config.OpenRouterConfig, symbol string, interval string, candel []exchange.WsRestCandle, feature []float64, topN int) (llm.TradeSignal, error) {
+func NewLLMPatternAgent(ctx context.Context, futureClient *futures.Client, logger slog.Logger, appConfig *config.AppConfig, dbConfig config.DatabaseConfig, llmConfig config.OpenRouterConfig, symbol string, interval string, candel []exchange.WsRestCandle, feature []float64, topN int) (llm.TradeSignal, error) {
 	connString := fmt.Sprintf("postgres://%s:%s@%s:%d/%s",
 		dbConfig.DBUser,
 		dbConfig.DBPassword,
@@ -29,14 +29,14 @@ func NewLLMPatternAgent(futureClient *futures.Client, logger slog.Logger, appCon
 		dbConfig.DBPort,
 		dbConfig.DBName,
 	)
-	db, err := postgresql.NewPostgresDB(connString, logger)
+	db, err := postgresql.NewPostgresDB(ctx, connString, logger)
 	if err != nil {
 		logger.Error("[LLMPatternPipeline] Cannot establish connection for candle ingestion.")
 		return llm.TradeSignal{}, err
 	}
 	defer db.Close()
 
-	patterns, err := db.QueryTopN(context.TODO(), symbol, interval, feature, topN)
+	patterns, err := db.QueryTopN(ctx, symbol, interval, feature, topN)
 	if err != nil {
 		logger.Error("[LLMPatternPipeline] Error from query Top n")
 		return llm.TradeSignal{}, err
@@ -44,7 +44,7 @@ func NewLLMPatternAgent(futureClient *futures.Client, logger slog.Logger, appCon
 
 	plot.GenerateCandleChart(candel, CANDLE_FILE_NAME, LATEST_CANDLE_PLOT)
 	plot.GeneratePredictionChart(feature, patterns, CHART_FILE_NAME)
-	logger.Info("[LLMPatternPipeline] Finshed plot")
+	logger.Info("[LLMPatternPipeline] Finished plot")
 
 	llmService := llm.NewLLMService(llmConfig.ApiKey)
 	regime, err := exchange.FetchLatestRegimes(logger, futureClient, appConfig, symbol, []string{"4h", "1d"}, candel)
@@ -53,28 +53,36 @@ func NewLLMPatternAgent(futureClient *futures.Client, logger slog.Logger, appCon
 		return llm.TradeSignal{}, err
 	}
 
-	currentTimestamp := time.Now().UTC().Format("2025-01-01 15:00:00")
+	currentTimestamp := time.Now().UTC().Format("2006-01-02 15:04:05")
+
 	dailyPnL, roi, err := trade.CalculateDailyROI(futureClient)
-	tradeHistory, err := trade.GetPositionHistory(futureClient, symbol, 30)
-	logger.Info(fmt.Sprintf("Current ROI=%f, PnL=%f", roi, dailyPnL))
 	if err != nil {
-		logger.Error("[LLMPatternPipeline] Error at PnL generates")
+		logger.Error("[LLMPatternPipeline] Error at PnL calculation")
 		return llm.TradeSignal{}, err
 	}
-	// systemMessage, userContent, b64Pattern, b64Canle, err := llmService.GenerateTradingPrompt(currentTimestamp, patterns, CHART_FILE_NAME, CANDLE_FILE_NAME, tradeHistory, regime, dailyPnL)
-	systemMessage, userContent, b64Pattern, b64Canle, err := llmService.GenerateTradingPrompt(currentTimestamp, patterns, CHART_FILE_NAME, CANDLE_FILE_NAME, tradeHistory, regime, dailyPnL)
-	logger.Info(fmt.Sprintln("[LLMPatternPipeline] systemMessage: ", systemMessage))
-	logger.Info(fmt.Sprintln("[LLMPatternPipeline] userContent: ", userContent))
+
+	tradeHistory, err := trade.GetPositionHistory(futureClient, symbol, 30)
 	if err != nil {
-		logger.Info(fmt.Sprintf("Prompt Error: %v", err))
-		return llm.TradeSignal{}, nil
+		logger.Error("[LLMPatternPipeline] Error at position history")
+		return llm.TradeSignal{}, err
 	}
 
-	signal, err := llmService.GenerateSignal(context.Background(), systemMessage, userContent, b64Pattern, b64Canle)
+	logger.Info(fmt.Sprintf("Current ROI=%f, PnL=%f", roi, dailyPnL))
+
+	systemMessage, userContent, b64Pattern, b64Candle, err := llmService.GenerateTradingPrompt(currentTimestamp, patterns, CHART_FILE_NAME, CANDLE_FILE_NAME, tradeHistory, regime, dailyPnL)
 	if err != nil {
-		logger.Info(fmt.Sprintf("LLM Error: %v", err))
-		return llm.TradeSignal{}, nil
+		logger.Error(fmt.Sprintf("Prompt Error: %v", err))
+		return llm.TradeSignal{}, err
 	}
+	logger.Info("[LLMPatternPipeline] systemMessage", "msg", systemMessage)
+	logger.Info("[LLMPatternPipeline] userContent", "msg", userContent)
+
+	signal, err := llmService.GenerateSignal(ctx, systemMessage, userContent, b64Pattern, b64Candle)
+	if err != nil {
+		logger.Error(fmt.Sprintf("LLM Error: %v", err))
+		return llm.TradeSignal{}, err
+	}
+
 	logger.Info("Signal result",
 		"signal", signal.Signal,
 		"confidence", signal.Confidence,

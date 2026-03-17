@@ -1,6 +1,9 @@
 package main
 
 import (
+	"context"
+	"fmt"
+	"os"
 	"time-series-rag-agent/internal/pipeline"
 	"time-series-rag-agent/pkg/logger"
 )
@@ -15,5 +18,9 @@ const (
 
 func main() {
 	logger := logger.SetupLogger()
-	pipeline.NewBackfillPipeline(*logger, SYMBOL, INTERVAL, FETCH_LIMIT, VECTOR_WINDOW, DAY_LOOK_BACK)
+	ctx := context.Background()
+	if err := pipeline.NewBackfillPipeline(ctx, logger, SYMBOL, INTERVAL, FETCH_LIMIT, VECTOR_WINDOW, DAY_LOOK_BACK); err != nil {
+		logger.Error(fmt.Sprintf("Backfill failed: %v", err))
+		os.Exit(1)
+	}
 }

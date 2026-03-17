@@ -6,9 +6,11 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time-series-rag-agent/config"
 	"time-series-rag-agent/internal/exchange"
 	"time-series-rag-agent/internal/pipeline"
 	"time-series-rag-agent/pkg/logger"
+	pkg "time-series-rag-agent/pkg/notifier"
 )
 
 const (
@@ -19,25 +21,27 @@ const (
 
 // cmd/live/main.go
 func main() {
-	// 1. Logger
 	logger := logger.SetupLogger()
 	logger.Info("[Entrypoint] Start live data streaming")
+	cfg := config.LoadConfig()
 
-	// 2. Graceful shutdown — รับ CTRL+C หรือ SIGTERM
+	discord := pkg.NewDiscordClient(cfg.Discord.DISCORD_NOTIFY_WEBHOOK_URL, cfg.Discord.DISCORD_NOTIFY_WEBHOOK_URL)
+
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
 	exchange.StartKlineWebsocket(ctx, SYMBOL, INTERVAL, logger, func(candle exchange.WsCandle) {
-		logger.Info("[Entrypoint] received candle", "time", candle.Time, "open", candle.Open, "high", candle.High, "low", candle.Low, "close", candle.Close, "volume", candle.Volume)
+		logger.Info("[Entrypoint] received candle", "time", candle.Time, "close", candle.Close)
 
 		candleArray := []exchange.WsCandle{candle}
-		err := pipeline.NewLivePipeline(*logger, candleArray, SYMBOL, INTERVAL, VECTOR_SIZE, candle.Close)
-		if err != nil {
-			logger.Error(fmt.Sprintln("[Entrypoint] Error at live pipeline: ", err))
+		if err := pipeline.NewLivePipeline(ctx, logger, candleArray, SYMBOL, INTERVAL, VECTOR_SIZE, candle.Close); err != nil {
+			logger.Error(fmt.Sprintf("[Entrypoint] Live pipeline error: %v", err))
+			discord.NotifyPipeline(fmt.Sprintf("[Pipeline Error] %s %s\n```%v```", SYMBOL, INTERVAL, err), "")
+			return
 		}
-		logger.Info("[Entrypoint] Sucessed live pipeline")
+
+		logger.Info("[Entrypoint] Finished live pipeline")
 	})
 
-	// ถึงตรงนี้ได้ = ctx ถูก cancel = shutdown gracefully
 	logger.Info("shutdown complete")
 }

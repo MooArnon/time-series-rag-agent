@@ -31,7 +31,7 @@ func TestFetchLatestCandles_Success(t *testing.T) {
 	}
 
 	// Act
-	candles, err := FetchLatestCandles(mock, "ETHUSDT", "15m", 3)
+	candles, err := FetchLatestCandles(context.Background(), mock, "ETHUSDT", "15m", 3)
 
 	// Assert
 	assert.NoError(t, err)
@@ -48,7 +48,7 @@ func TestFetchLatestCandles_APIError(t *testing.T) {
 	}
 
 	// Act
-	candles, err := FetchLatestCandles(mock, "ETHUSDT", "15m", 2)
+	candles, err := FetchLatestCandles(context.Background(), mock, "ETHUSDT", "15m", 2)
 
 	// Assert
 	assert.Error(t, err)
@@ -66,7 +66,7 @@ func TestFetchLatestCandles_ParseError(t *testing.T) {
 	}
 
 	// Act
-	candles, err := FetchLatestCandles(mock, "ETHUSDT", "15m", 1)
+	candles, err := FetchLatestCandles(context.Background(), mock, "ETHUSDT", "15m", 1)
 
 	// Assert
 	assert.Error(t, err)
