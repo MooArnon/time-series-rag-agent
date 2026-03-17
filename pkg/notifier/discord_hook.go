@@ -2,12 +2,30 @@ package pkg
 
 import "fmt"
 
+const (
+	PATTERN_FILE_NAME      = "chart.png"
+	PRICE_ACTION_FILE_NAME = "candle.png"
+)
+
 func (d *DiscordClient) NewPipelineHooks(symbol, interval string) *PipelineHooks {
 	return &PipelineHooks{
-		OnOrderExecuted: func(sym, signal string, price float64) {
+		OnOrderExecuted: func(sym, signal string, price float64, synthesis string, patternRead string, priceActionRead string) {
 			d.NotifyOrder(
 				fmt.Sprintf("%s `%s` @ `%.2f`\nInterval: %s", signal, sym, price, interval),
 				"",
+			)
+			d.NotifyOrder(
+				fmt.Sprintln("Synthesis", synthesis),
+				"",
+			)
+			d.NotifyOrder(
+				fmt.Sprintln("PatternRead: ", patternRead),
+				PATTERN_FILE_NAME,
+			)
+
+			d.NotifyOrder(
+				fmt.Sprintln("PriceActionRead: ", priceActionRead),
+				PRICE_ACTION_FILE_NAME,
 			)
 		},
 		OnPipelineError: func(phase string, err error) {

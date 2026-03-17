@@ -299,7 +299,6 @@ CONFIDENCE SCALE (anchored)
   < 30   No edge detected. Must be HOLD.
 
   Always round confidence to the nearest 5.
-  NEVER output confidence > 85 unless the best pattern match exceeds 80%
   similarity AND all 3 pillars are in strong agreement.
 `
 }

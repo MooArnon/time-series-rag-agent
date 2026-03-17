@@ -8,12 +8,13 @@ import (
 	"time-series-rag-agent/internal/exchange"
 	"time-series-rag-agent/internal/llm"
 	"time-series-rag-agent/internal/storage/postgresql"
+	pkg "time-series-rag-agent/pkg/notifier"
 
 	"github.com/adshao/go-binance/v2/futures"
 	"golang.org/x/sync/errgroup"
 )
 
-func NewLivePipeline(ctx context.Context, logger *slog.Logger, wsCandle []exchange.WsCandle, symbol string, interval string, vectorSize int, wsClose float64) error {
+func NewLivePipeline(ctx context.Context, logger *slog.Logger, hooks *pkg.PipelineHooks, wsCandle []exchange.WsCandle, symbol string, interval string, vectorSize int, wsClose float64) error {
 	logger.Info("[LivePipeline] Starting Embedding Pipeline")
 	cfg := config.LoadConfig()
 	binanceClient := futures.NewClient(cfg.Market.ApiKey, cfg.Market.ApiSecret)
@@ -48,6 +49,7 @@ func NewLivePipeline(ctx context.Context, logger *slog.Logger, wsCandle []exchan
 		if dbIngest != nil {
 			dbIngest.Close()
 		}
+		hooks.OnPipelineError("init", err)
 		return fmt.Errorf("[LivePipeline] init: %w", err)
 	}
 	defer dbIngest.Close()
@@ -55,6 +57,7 @@ func NewLivePipeline(ctx context.Context, logger *slog.Logger, wsCandle []exchan
 	// --- 2) Embedding (sequential, depends on restCandle + dbIngest) ---
 	feature, label, wsRestCandle := NewEmbeddingPipeline(*logger, wsCandle, restCandle, vectorSize, symbol, interval)
 	if feature == nil {
+		hooks.OnPipelineError("embedding", fmt.Errorf("feature is nil"))
 		return fmt.Errorf("[LivePipeline] feature is nil")
 	}
 
@@ -89,14 +92,18 @@ func NewLivePipeline(ctx context.Context, logger *slog.Logger, wsCandle []exchan
 	})
 
 	if err := g2.Wait(); err != nil {
+		hooks.OnPipelineError("phase2", err)
 		return fmt.Errorf("[LivePipeline] phase 2: %w", err)
 	}
 	logger.Info(fmt.Sprint("Result from Agent: ", llmOutput))
 
 	// --- 4) Order execution (sequential, depends on LLM signal) ---
 	if err := NewOrderExecutionPipeline(ctx, *logger, binanceClient, symbol, llmOutput.Signal, wsClose); err != nil {
+		hooks.OnPipelineError("order", err)
 		return fmt.Errorf("[LivePipeline] order execution: %w", err)
 	}
+
+	hooks.OnOrderExecuted(symbol, llmOutput.Signal, wsClose, llmOutput.Synthesis, llmOutput.PatternRead, llmOutput.PriceActionRead)
 
 	return nil
 }

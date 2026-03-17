@@ -26,6 +26,7 @@ func main() {
 	cfg := config.LoadConfig()
 
 	discord := pkg.NewDiscordClient(cfg.Discord.DISCORD_NOTIFY_WEBHOOK_URL, cfg.Discord.DISCORD_NOTIFY_WEBHOOK_URL)
+	hooks := discord.NewPipelineHooks(SYMBOL, INTERVAL)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
@@ -34,9 +35,8 @@ func main() {
 		logger.Info("[Entrypoint] received candle", "time", candle.Time, "close", candle.Close)
 
 		candleArray := []exchange.WsCandle{candle}
-		if err := pipeline.NewLivePipeline(ctx, logger, candleArray, SYMBOL, INTERVAL, VECTOR_SIZE, candle.Close); err != nil {
+		if err := pipeline.NewLivePipeline(ctx, logger, hooks, candleArray, SYMBOL, INTERVAL, VECTOR_SIZE, candle.Close); err != nil {
 			logger.Error(fmt.Sprintf("[Entrypoint] Live pipeline error: %v", err))
-			discord.NotifyPipeline(fmt.Sprintf("[Pipeline Error] %s %s\n```%v```", SYMBOL, INTERVAL, err), "")
 			return
 		}
 

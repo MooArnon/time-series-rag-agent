@@ -9,3 +9,25 @@ RUN go mod download
 
 # Copy the rest of the source code
 COPY . .
+
+# Build the binary. 
+# -o main: output file name
+# ./cmd/live/main.go: path to your specific main file
+RUN go build -o live ./cmd/live/main.go
+
+# --- Stage 2: Runner (Production Image) ---
+FROM alpine:latest
+
+# Install CA certificates (Required for making HTTPS requests to Binance/AWS)
+RUN apk --no-cache add ca-certificates
+
+WORKDIR /root/
+
+# Copy ONLY the binary from the builder stage
+COPY --from=builder /app/live .
+
+# Copy .env if you still use it (though AWS Secrets Manager is better)
+# COPY .env . 
+
+# Run the binary
+CMD ["./live"]
