@@ -42,6 +42,7 @@ type AgentConfig struct {
 
 type LLMConfig struct {
 	NumPnLLookback int
+	TopN           int
 }
 
 type QueConfig struct {
@@ -120,6 +121,7 @@ func LoadConfig() *AppConfig {
 		},
 		LLM: LLMConfig{
 			NumPnLLookback: getEnvAsInt("NUM_PNL_LOOKBACK", 15),
+			TopN:           getEnvAsInt("TOPN_MATCHED", 30),
 		},
 	}
 

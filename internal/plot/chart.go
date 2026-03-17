@@ -10,7 +10,7 @@ import (
 	"gonum.org/v1/plot/plotter"
 	"gonum.org/v1/plot/vg"
 
-	"time-series-rag-agent/internal/ai"
+	"time-series-rag-agent/internal/embedding"
 )
 
 // Helper: Cumulative Sum
@@ -24,9 +24,8 @@ func cumSum(data []float64) []float64 {
 	return res
 }
 
-func GeneratePredictionChart(currentEmbedding []float64, matches []ai.PatternLabel, filename string) error {
+func GeneratePredictionChart(currentEmbedding []float64, matches []embedding.PatternLabel, filename string) error {
 	p := plot.New()
-
 	p.Title.Text = fmt.Sprintf("AI Pattern Projection [%s]", time.Now().Format("15:04"))
 	p.X.Label.Text = "Time Steps (Left=History | Right=Future)"
 	p.Y.Label.Text = "Cumulative Z-Score"
@@ -64,11 +63,11 @@ func GeneratePredictionChart(currentEmbedding []float64, matches []ai.PatternLab
 
 	// --- 1. Plot Matches ---
 	for _, m := range matches {
-		if len(m.Embedding) == 0 {
+		if len(m.Embedding.Slice()) == 0 {
 			continue
 		}
 
-		shapeData := cumSum(m.Embedding)
+		shapeData := cumSum(toFloat64Slice(m.Embedding.Slice()))
 
 		// Update limits based on history
 		for _, v := range shapeData {
@@ -152,4 +151,12 @@ func GeneratePredictionChart(currentEmbedding []float64, matches []ai.PatternLab
 		return err
 	}
 	return nil
+}
+
+func toFloat64Slice(f32 []float32) []float64 {
+	out := make([]float64, len(f32))
+	for i, v := range f32 {
+		out[i] = float64(v)
+	}
+	return out
 }
