@@ -11,7 +11,7 @@ import (
 	"github.com/adshao/go-binance/v2/futures"
 )
 
-func NewLivePipeline(logger slog.Logger, wsCandle []exchange.WsCandle, symbol string, interval string, vectorSize int) error {
+func NewLivePipeline(logger slog.Logger, wsCandle []exchange.WsCandle, symbol string, interval string, vectorSize int, wsClose float64) error {
 	logger.Info("[LivePipeline] Starting Embedding Pipeline")
 	cfg := config.LoadConfig()
 	binanceClient := futures.NewClient(cfg.Market.ApiKey, cfg.Market.ApiSecret)
@@ -31,8 +31,6 @@ func NewLivePipeline(logger slog.Logger, wsCandle []exchange.WsCandle, symbol st
 		logger.Error("[LivePipeline] feature is nil, skipping upsert")
 		return fmt.Errorf("feature is nil")
 	}
-	logger.Info(fmt.Sprint("[LivePipeline] Feature: ", feature))
-	logger.Info(fmt.Sprint("[LivePipeline] Label: ", label))
 
 	// -- Save to DB -- //
 	connString := fmt.Sprintf("postgres://%s:%s@%s:%d/%s",
@@ -69,8 +67,17 @@ func NewLivePipeline(logger slog.Logger, wsCandle []exchange.WsCandle, symbol st
 		)
 		return err
 	}
+	logger.Info(fmt.Sprint("Result from Agent: ", output))
 
-	fmt.Print(output)
+	signalTest := "SHORT"
+	//errOrder := NewOrderExecutionPipeline(logger, binanceClient, symbol, output.Signal, wsClose)
+	errOrder := NewOrderExecutionPipeline(logger, binanceClient, symbol, signalTest, wsClose)
+	if errOrder != nil {
+		logger.Error(
+			fmt.Sprintln("[LivePipeline] Error with ", errOrder),
+		)
+		return errOrder
+	}
 
 	return nil
 }

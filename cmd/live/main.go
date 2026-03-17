@@ -13,7 +13,7 @@ import (
 
 const (
 	SYMBOL      = "BTCUSDT"
-	INTERVAL    = "1m"
+	INTERVAL    = "15m"
 	VECTOR_SIZE = 30
 )
 
@@ -31,7 +31,7 @@ func main() {
 		logger.Info("[Entrypoint] received candle", "time", candle.Time, "open", candle.Open, "high", candle.High, "low", candle.Low, "close", candle.Close, "volume", candle.Volume)
 
 		candleArray := []exchange.WsCandle{candle}
-		err := pipeline.NewLivePipeline(*logger, candleArray, SYMBOL, INTERVAL, VECTOR_SIZE)
+		err := pipeline.NewLivePipeline(*logger, candleArray, SYMBOL, INTERVAL, VECTOR_SIZE, candle.Close)
 		if err != nil {
 			logger.Error(fmt.Sprintln("[Entrypoint] Error at live pipeline: ", err))
 		}

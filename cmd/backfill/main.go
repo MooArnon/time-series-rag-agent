@@ -7,7 +7,7 @@ import (
 
 const (
 	SYMBOL        = "BTCUSDT"
-	INTERVAL      = "1m"
+	INTERVAL      = "15m"
 	VECTOR_WINDOW = 30
 	FETCH_LIMIT   = 2000
 	DAY_LOOK_BACK = 20

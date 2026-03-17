@@ -63,7 +63,8 @@ func NewLLMPatternAgent(futureClient *futures.Client, logger slog.Logger, appCon
 	}
 	// systemMessage, userContent, b64Pattern, b64Canle, err := llmService.GenerateTradingPrompt(currentTimestamp, patterns, CHART_FILE_NAME, CANDLE_FILE_NAME, tradeHistory, regime, dailyPnL)
 	systemMessage, userContent, b64Pattern, b64Canle, err := llmService.GenerateTradingPrompt(currentTimestamp, patterns, CHART_FILE_NAME, CANDLE_FILE_NAME, tradeHistory, regime, dailyPnL)
-
+	logger.Info(fmt.Sprintln("[LLMPatternPipeline] systemMessage: ", systemMessage))
+	logger.Info(fmt.Sprintln("[LLMPatternPipeline] userContent: ", userContent))
 	if err != nil {
 		logger.Info(fmt.Sprintf("Prompt Error: %v", err))
 		return llm.TradeSignal{}, nil

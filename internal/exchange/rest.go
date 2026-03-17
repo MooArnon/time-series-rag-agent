@@ -10,7 +10,7 @@ import (
 )
 
 func FetchLatestCandles(klineService KlineService, symbol string, interval string, limit int) ([]RestCandle, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	// Call /fapi/v1/klines

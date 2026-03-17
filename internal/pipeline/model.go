@@ -28,3 +28,7 @@ type LLMPatternPipelineOutPut struct {
 	Reason     string
 	Confidence float64
 }
+
+type OrderExecutionOutput struct {
+	OrderStatus string
+}
