@@ -14,10 +14,9 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-func NewLivePipeline(ctx context.Context, logger *slog.Logger, hooks *pkg.PipelineHooks, wsCandle []exchange.WsCandle, symbol string, interval string, vectorSize int, wsClose float64) error {
+func NewLivePipeline(ctx context.Context, logger *slog.Logger, binanceClient *futures.Client, hooks *pkg.PipelineHooks, wsCandle []exchange.WsCandle, symbol string, interval string, vectorSize int, wsClose float64) error {
 	logger.Info("[LivePipeline] Starting Embedding Pipeline")
 	cfg := config.LoadConfig()
-	binanceClient := futures.NewClient(cfg.Market.ApiKey, cfg.Market.ApiSecret)
 	adapter := exchange.NewBinanceAdapter(binanceClient)
 
 	connString := fmt.Sprintf("postgres://%s:%s@%s:%d/%s",
@@ -106,6 +105,20 @@ func NewLivePipeline(ctx context.Context, logger *slog.Logger, hooks *pkg.Pipeli
 	if err := g2.Wait(); err != nil {
 		hooks.OnPipelineError("phase2", err)
 		return fmt.Errorf("[LivePipeline] phase 2: %w", err)
+	}
+
+	hasPosition, side, _, err := executor.HasOpenPosition(ctx)
+	if err != nil {
+		return fmt.Errorf("[LivePipeline] Checking position error: %w", err)
+	}
+	hasOrders, err := executor.HasOpenOrders(ctx)
+	if err != nil {
+		return fmt.Errorf("[LivePipeline] Checking orders error: %w", err)
+	}
+	if hasPosition || hasOrders {
+		logger.Info("[LivePipeline] Active position or order, skipping LLM.",
+			"side", side, "hasOrders", hasOrders)
+		return nil
 	}
 
 	// --- 3.5) Cooldown check (หลัง upsert แล้ว ก่อน LLM) ---

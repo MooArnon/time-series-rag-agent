@@ -20,9 +20,8 @@ import (
 
 // --- Configuration ---
 const (
-	LLM_API_URL          = "https://api.anthropic.com/v1/messages"
-	MODEL_NAME           = "claude-sonnet-4-6"
-	CONFIDENCE_THRESHOLD = 65
+	LLM_API_URL = "https://api.anthropic.com/v1/messages"
+	MODEL_NAME  = "claude-sonnet-4-6"
 )
 
 // --- Structs for JSON Response ---
@@ -125,7 +124,7 @@ func (s *LLMService) GenerateTradingPrompt(
 }
 
 // 2. GenerateSignal executes the request
-func (s *LLMService) GenerateSignal(ctx context.Context, systemPrompt, userText, imgA_B64, imgB_B64 string) (*TradeSignal, error) {
+func (s *LLMService) GenerateSignal(ctx context.Context, systemPrompt, userText, imgA_B64, imgB_B64 string, confidenceThreshold int) (*TradeSignal, error) {
 
 	// Construct Payload matching Anthropic Messages API spec
 	payload := map[string]interface{}{
@@ -217,8 +216,8 @@ func (s *LLMService) GenerateSignal(ctx context.Context, systemPrompt, userText,
 	}
 
 	// Filter Low Confidence (Python Logic Ported)
-	if signal.Confidence < CONFIDENCE_THRESHOLD {
-		log.Printf("⚠️ Low Confidence (%d%% < %d%%). Defaulting to HOLD.", signal.Confidence, CONFIDENCE_THRESHOLD)
+	if signal.Confidence < confidenceThreshold {
+		log.Printf("⚠️ Low Confidence (%d%% < %d%%). Defaulting to HOLD.", signal.Confidence, confidenceThreshold)
 		signal.Signal = "HOLD"
 		signal.RiskNote = fmt.Sprintf("Confidence too low (%d%%)", signal.Confidence)
 	}

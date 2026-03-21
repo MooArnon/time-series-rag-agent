@@ -22,7 +22,7 @@ const (
 	TRADING_LOOK_BACK_DAYS = 2
 )
 
-func NewLLMPatternAgent(ctx context.Context, futureClient *futures.Client, logger slog.Logger, appConfig *config.AppConfig, dbConfig config.DatabaseConfig, llmConfig config.OpenRouterConfig, symbol string, interval string, candel []exchange.WsRestCandle, feature []float64, topN int) (llm.TradeSignal, error) {
+func NewLLMPatternAgent(ctx context.Context, futureClient *futures.Client, logger slog.Logger, appConfig *config.AppConfig, dbConfig config.DatabaseConfig, openRouterConfig config.OpenRouterConfig, symbol string, interval string, candel []exchange.WsRestCandle, feature []float64, topN int) (llm.TradeSignal, error) {
 	connString := fmt.Sprintf("postgres://%s:%s@%s:%d/%s",
 		dbConfig.DBUser,
 		dbConfig.DBPassword,
@@ -47,7 +47,7 @@ func NewLLMPatternAgent(ctx context.Context, futureClient *futures.Client, logge
 	plot.GeneratePredictionChart(feature, patterns, CHART_FILE_NAME)
 	logger.Info("[LLMPatternPipeline] Finished plot")
 
-	llmService := llm.NewLLMService(llmConfig.ApiKey)
+	llmService := llm.NewLLMService(openRouterConfig.ApiKey)
 	regime, err := exchange.FetchLatestRegimes(logger, futureClient, appConfig, symbol, []string{"4h", "1d"}, candel)
 	if err != nil {
 		logger.Error("[LLMPatternPipeline] Regime fetching")
@@ -67,10 +67,15 @@ func NewLLMPatternAgent(ctx context.Context, futureClient *futures.Client, logge
 		logger.Error("[LLMPatternPipeline] Error at position history")
 		return llm.TradeSignal{}, err
 	}
+	promptPositions := tradeHistory
+	if len(promptPositions) > appConfig.LLM.LimitTradeHistory {
+		promptPositions = promptPositions[:5] // already sorted newest-first
+	}
+	fmt.Println("promptPositions: ", promptPositions)
 
 	logger.Info(fmt.Sprintf("Current ROI=%f, PnL=%f", roi, dailyPnL))
 
-	systemMessage, userContent, b64Pattern, b64Candle, err := llmService.GenerateTradingPrompt(currentTimestamp, patterns, CHART_FILE_NAME, CANDLE_FILE_NAME, tradeHistory, regime, dailyPnL)
+	systemMessage, userContent, b64Pattern, b64Candle, err := llmService.GenerateTradingPrompt(currentTimestamp, patterns, CHART_FILE_NAME, CANDLE_FILE_NAME, promptPositions, regime, dailyPnL)
 	if err != nil {
 		logger.Error(fmt.Sprintf("Prompt Error: %v", err))
 		return llm.TradeSignal{}, err
@@ -78,7 +83,7 @@ func NewLLMPatternAgent(ctx context.Context, futureClient *futures.Client, logge
 	logger.Info("[LLMPatternPipeline] systemMessage", "msg", systemMessage)
 	logger.Info("[LLMPatternPipeline] userContent", "msg", userContent)
 
-	signal, err := llmService.GenerateSignal(ctx, systemMessage, userContent, b64Pattern, b64Candle)
+	signal, err := llmService.GenerateSignal(ctx, systemMessage, userContent, b64Pattern, b64Candle, appConfig.LLM.ConfidenceThreshold)
 	if err != nil {
 		logger.Error(fmt.Sprintf("LLM Error: %v", err))
 		return llm.TradeSignal{}, err
