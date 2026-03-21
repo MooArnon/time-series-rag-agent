@@ -105,7 +105,7 @@ func (s *LLMService) GenerateTradingPrompt(
 	// historicalJson, _ := json.MarshalIndent(cleanData, "", "  ")
 
 	systemMessage := GetBasePrompt()
-	systemMessage += GetPromtConstraint()
+	systemMessage += GetPromptConstraint()
 
 	regime4h := regimes["4h"].Result
 	regime1d := regimes["1d"].Result

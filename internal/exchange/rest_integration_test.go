@@ -3,6 +3,7 @@
 package exchange
 
 import (
+	"context"
 	"os"
 	"testing"
 
@@ -19,7 +20,7 @@ func TestIntegrationFetchLatestCandles_Success(t *testing.T) {
 	adapter := NewBinanceAdapter(binanceClient)
 
 	// Act
-	candles, err := FetchLatestCandles(adapter, "ETHUSDT", "15m", 30)
+	candles, err := FetchLatestCandles(context.Background(), adapter, "ETHUSDT", "15m", 30)
 
 	// Basic checks
 	assert.NoError(t, err)
