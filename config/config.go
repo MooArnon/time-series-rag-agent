@@ -41,8 +41,10 @@ type AgentConfig struct {
 }
 
 type LLMConfig struct {
-	NumPnLLookback int
-	TopN           int
+	NumPnLLookback      int
+	TopN                int
+	ConfidenceThreshold int
+	LimitTradeHistory   int
 }
 
 type QueConfig struct {
@@ -120,8 +122,10 @@ func LoadConfig() *AppConfig {
 			BandWidthPeriod:      getEnvAsInt("BANDWIDTH_PERIOD", 30),
 		},
 		LLM: LLMConfig{
-			NumPnLLookback: getEnvAsInt("NUM_PNL_LOOKBACK", 5),
-			TopN:           getEnvAsInt("TOPN_MATCHED", 30),
+			NumPnLLookback:      getEnvAsInt("NUM_PNL_LOOKBACK", 5),
+			TopN:                getEnvAsInt("TOPN_MATCHED", 30),
+			ConfidenceThreshold: getEnvAsInt("CONFIDENCE_THRESHOLD", 40),
+			LimitTradeHistory:   getEnvAsInt("LimitTradeHistory", 5),
 		},
 	}
 

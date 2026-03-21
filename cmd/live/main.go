@@ -31,6 +31,12 @@ func main() {
 	discord := pkg.NewDiscordClient(cfg.Discord.DISCORD_NOTIFY_WEBHOOK_URL, cfg.Discord.DISCORD_NOTIFY_WEBHOOK_URL)
 	hooks := discord.NewPipelineHooks(SYMBOL, INTERVAL)
 
+	binanceClient, err := exchange.NewBinanceClient(context.Background(), cfg)
+	if err != nil {
+		logger.Info("[Entrypoint] Error at Binance client initiate")
+		return
+	}
+
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
@@ -38,7 +44,7 @@ func main() {
 		logger.Info("[Entrypoint] received candle", "time", candle.Time, "close", candle.Close)
 
 		candleArray := []exchange.WsCandle{candle}
-		if err := pipeline.NewLivePipeline(ctx, logger, hooks, candleArray, SYMBOL, INTERVAL, VECTOR_SIZE, candle.Close); err != nil {
+		if err := pipeline.NewLivePipeline(ctx, logger, binanceClient, hooks, candleArray, SYMBOL, INTERVAL, VECTOR_SIZE, candle.Close); err != nil {
 			logger.Error(fmt.Sprintf("[Entrypoint] Live pipeline error: %v", err))
 			return
 		}
