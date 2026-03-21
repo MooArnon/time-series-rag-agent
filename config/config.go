@@ -120,7 +120,7 @@ func LoadConfig() *AppConfig {
 			BandWidthPeriod:      getEnvAsInt("BANDWIDTH_PERIOD", 30),
 		},
 		LLM: LLMConfig{
-			NumPnLLookback: getEnvAsInt("NUM_PNL_LOOKBACK", 15),
+			NumPnLLookback: getEnvAsInt("NUM_PNL_LOOKBACK", 5),
 			TopN:           getEnvAsInt("TOPN_MATCHED", 30),
 		},
 	}
