@@ -14,9 +14,10 @@ import (
 )
 
 const (
-	SYMBOL      = "BTCUSDT"
-	INTERVAL    = "15m"
-	VECTOR_SIZE = 30
+	SYMBOL             = "BTCUSDT"
+	INTERVAL           = "15m"
+	VECTOR_SIZE        = 30
+	CONSECUTIVE_LOSSES = 2
 )
 
 // cmd/live/main.go
@@ -24,6 +25,8 @@ func main() {
 	logger := logger.SetupLogger()
 	logger.Info("[Entrypoint] Start live data streaming")
 	cfg := config.LoadConfig()
+
+	logger.Info(fmt.Sprintf("[Entrypoint] leverage: %d", cfg.Agent.Leverage))
 
 	discord := pkg.NewDiscordClient(cfg.Discord.DISCORD_NOTIFY_WEBHOOK_URL, cfg.Discord.DISCORD_NOTIFY_WEBHOOK_URL)
 	hooks := discord.NewPipelineHooks(SYMBOL, INTERVAL)

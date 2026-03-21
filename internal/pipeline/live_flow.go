@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"time"
 	"time-series-rag-agent/config"
 	"time-series-rag-agent/internal/exchange"
-	"time-series-rag-agent/internal/llm"
 	"time-series-rag-agent/internal/storage/postgresql"
 	pkg "time-series-rag-agent/pkg/notifier"
 
@@ -25,10 +25,27 @@ func NewLivePipeline(ctx context.Context, logger *slog.Logger, hooks *pkg.Pipeli
 		cfg.Database.DBHost, cfg.Database.DBPort, cfg.Database.DBName,
 	)
 
-	// --- 1) REST fetch + DB connect in parallel (fail-fast) ---
+	duration, err := time.ParseDuration(interval)
+	if err != nil {
+		return fmt.Errorf("[LivePipeline] parse interval: %w", err)
+	}
+
+	executor := exchange.NewExecutor(
+		binanceClient,
+		symbol,
+		cfg.Agent.AviableTradeRatio,
+		cfg.Agent.Leverage,
+		cfg.Agent.SLPercentage,
+		cfg.Agent.TPPercentage,
+		*logger,
+	)
+
+	// --- 1) REST fetch + DB connect + Cooldown check in parallel (fail-fast) ---
 	var (
-		restCandle []exchange.RestCandle
-		dbIngest   *postgresql.PatternStore
+		restCandle    []exchange.RestCandle
+		dbIngest      *postgresql.PatternStore
+		isInCooldown  bool
+		barsRemaining int
 	)
 
 	g1, ctx1 := errgroup.WithContext(ctx)
@@ -42,6 +59,12 @@ func NewLivePipeline(ctx context.Context, logger *slog.Logger, hooks *pkg.Pipeli
 	g1.Go(func() error {
 		var err error
 		dbIngest, err = postgresql.NewPostgresDB(ctx1, connString, *logger)
+		return err
+	})
+
+	g1.Go(func() error {
+		var err error
+		isInCooldown, barsRemaining, err = executor.GetCooldownState(ctx1, duration)
 		return err
 	})
 
@@ -61,9 +84,7 @@ func NewLivePipeline(ctx context.Context, logger *slog.Logger, hooks *pkg.Pipeli
 		return fmt.Errorf("[LivePipeline] feature is nil")
 	}
 
-	// --- 3) DB upserts + LLM agent in parallel (fail-fast) ---
-	var llmOutput llm.TradeSignal
-
+	// --- 3) DB upserts (ทำเสมอ ไม่ว่าจะ cooldown หรือไม่) ---
 	g2, ctx2 := errgroup.WithContext(ctx)
 
 	g2.Go(func() error {
@@ -82,22 +103,32 @@ func NewLivePipeline(ctx context.Context, logger *slog.Logger, hooks *pkg.Pipeli
 		return nil
 	})
 
-	g2.Go(func() error {
-		var err error
-		llmOutput, err = NewLLMPatternAgent(
-			ctx2, binanceClient, *logger, cfg, cfg.Database, cfg.OpenRouter,
-			symbol, interval, wsRestCandle, feature.Embedding, cfg.LLM.TopN,
-		)
-		return err
-	})
-
 	if err := g2.Wait(); err != nil {
 		hooks.OnPipelineError("phase2", err)
 		return fmt.Errorf("[LivePipeline] phase 2: %w", err)
 	}
+
+	// --- 3.5) Cooldown check (หลัง upsert แล้ว ก่อน LLM) ---
+	if isInCooldown {
+		logger.Info("[LivePipeline] ⏸ in cooldown, skipping LLM + order",
+			"bars_remaining", barsRemaining,
+		)
+		hooks.OnOrderExecuted(symbol, "HOLD", wsClose, "cooldown", "", "")
+		return nil
+	}
+
+	// --- 4) LLM ---
+	llmOutput, err := NewLLMPatternAgent(
+		ctx, binanceClient, *logger, cfg, cfg.Database, cfg.OpenRouter,
+		symbol, interval, wsRestCandle, feature.Embedding, cfg.LLM.TopN,
+	)
+	if err != nil {
+		hooks.OnPipelineError("llm", err)
+		return fmt.Errorf("[LivePipeline] llm: %w", err)
+	}
 	logger.Info(fmt.Sprint("Result from Agent: ", llmOutput))
 
-	// --- 4) Order execution (sequential, depends on LLM signal) ---
+	// --- 5) Order execution ---
 	if err := NewOrderExecutionPipeline(ctx, *logger, binanceClient, symbol, llmOutput.Signal, wsClose); err != nil {
 		hooks.OnPipelineError("order", err)
 		return fmt.Errorf("[LivePipeline] order execution: %w", err)
