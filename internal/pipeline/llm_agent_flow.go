@@ -16,9 +16,10 @@ import (
 )
 
 const (
-	CANDLE_FILE_NAME   = "candle.png"
-	CHART_FILE_NAME    = "chart.png"
-	LATEST_CANDLE_PLOT = 45
+	CANDLE_FILE_NAME       = "candle.png"
+	CHART_FILE_NAME        = "chart.png"
+	LATEST_CANDLE_PLOT     = 45
+	TRADING_LOOK_BACK_DAYS = 2
 )
 
 func NewLLMPatternAgent(ctx context.Context, futureClient *futures.Client, logger slog.Logger, appConfig *config.AppConfig, dbConfig config.DatabaseConfig, llmConfig config.OpenRouterConfig, symbol string, interval string, candel []exchange.WsRestCandle, feature []float64, topN int) (llm.TradeSignal, error) {
@@ -61,7 +62,7 @@ func NewLLMPatternAgent(ctx context.Context, futureClient *futures.Client, logge
 		return llm.TradeSignal{}, err
 	}
 
-	tradeHistory, err := trade.GetPositionHistory(futureClient, symbol, 30)
+	tradeHistory, err := trade.GetPositionHistory(futureClient, symbol, TRADING_LOOK_BACK_DAYS)
 	if err != nil {
 		logger.Error("[LLMPatternPipeline] Error at position history")
 		return llm.TradeSignal{}, err
