@@ -119,37 +119,104 @@ func FormatPatternMatches(matches []HistoricalDetail) string {
 }
 
 func GetBasePrompt() string {
-	return `Quant analyst. Future Binance BTCUSDT 15m. Return one JSON signal.
+	return `Quant analyst. Binance Futures BTCUSDT Perp, 15m bars, 7× isolated leverage. Return one JSON signal.
  
 # CHARTS
-A (Pattern): BLACK=current, GREEN=UP history, RED=DOWN history. Dashed=projected.
-  Read: black slope, green vs red fan dominance, fan spread (tight=conviction).
-B (Price): Candles+volume. MA(7)orange MA(25)purple MA(99)pink.
-  Read: MA stack order, last 3 candles, volume, price levels.
+A (Pattern): BLACK=current price path. GREEN=historically UP outcomes. RED=historically DOWN outcomes. Dashed=projected.
+  Read: black line slope into divider, green vs red fan dominance, fan spread width (tight=conviction, wide=uncertainty).
+B (Price Action): Candles + volume bars. MA(7) orange, MA(25) purple, MA(99) pink.
+  Read: MA stack order and spacing, last 3-5 candle bodies and wicks, volume trend vs recent bars, key S/R levels.
  
 # DATA
-Regime: ADX>40=strong trend, 20-40=moderate, <20=none. +DI>-DI=bull.
-Pattern: wds[-1,+1] pre-computed. >+0.15=UP, <-0.15=DOWN. Sim>70%=strong.
+Regime: ADX>40=strong trend, 20-40=moderate, <20=ranging. +DI>-DI=bull, -DI>+DI=bear.
+Pattern: wds[-1,+1]. Pre-computed directional lean. >+0.15=UP bias, <-0.15=DOWN bias. Near zero=no edge.
+Similarity: >70%=meaningful, <70%=noise. Low similarity invalidates pattern signal.
  
-# MODE (check MARKET STRUCTURE in user msg)
-TREND (trend=ALIVE, ranging=NO): use regime+pattern+price action.
-RANGE (trend=EXHAUSTED or ranging=YES): IGNORE regime/MAs (lagging).
-  Trade range edges: LONG near support, SHORT near resistance.
-  Mid-range: use wds and fan dominance to pick direction. Only HOLD if
-  price is exactly mid-range AND wds is neutral AND fan is split.
+# STEP 1 — CLASSIFY STRUCTURE (do this first)
+TREND: Price making directional progress. MAs fanned and ordered. Volume confirming moves.
+RANGE: Price oscillating between identifiable S/R. MAs converging or tangled.
+  → Use mode=RANGE.
+NO_EDGE: No readable structure. Whipsaws, erratic moves, volume spikes without follow-through,
+  MAs tangled with price chopping through all of them repeatedly.
+  → Use mode=NO_EDGE → signal MUST be HOLD.
  
-# DECIDE
-One clear pillar is enough to trade. You need CONFLICT to HOLD, not consensus to trade.
-TREND: regime+PA agree→65-80. PA clear alone→55-65. Active conflict→HOLD.
-RANGE: at edge→60-75. Mid-range with directional lean→55-65.
-  Range break with volume→70-80.
-HOLD only when you truly cannot read direction from ANY input.
+# STEP 2 — VOLUME GATE (mandatory for any LONG/SHORT)
+Never enter on declining or below-average volume. Volume confirms intent.
+- LONG needs: rising volume on green candles near support, or volume surge on breakout.
+- SHORT needs: rising volume on red candles near resistance, or volume surge on breakdown.
+- Declining volume during consolidation = HOLD regardless of other signals.
+If volume does not confirm direction → HOLD. No exceptions.
+ 
+# STEP 3 — FAN SPREAD GATE
+Chart A fan spread reflects outcome uncertainty from historical pattern matches:
+- Tight fan + clear single-color dominance → supports a trade.
+- Wide spread even with numerical dominance of one color → uncertainty too high → HOLD.
+  Exception: price at a hard range edge with candle + volume confirmation may override.
+- Nearly equal green/red spread → HOLD.
+ 
+# STEP 4 — SIGNAL DECISION (confluence required)
+You need ALIGNMENT across multiple inputs to trade. One signal alone is NEVER enough.
+ 
+LONG requires 2+ of these pillars aligned:
+  a) Price at or bouncing from identifiable support WITH volume rising on the bounce
+  b) Fan projection green-dominant with tight spread
+  c) Bullish candle structure (engulfing, hammer, higher lows) WITH rising volume
+  d) Bullish MA stack with price reclaiming MA(7) from below on volume
+ 
+SHORT requires 2+ of these pillars aligned:
+  a) Price at or rejecting from identifiable resistance WITH volume rising on rejection
+  b) Fan projection red-dominant with tight spread
+  c) Bearish candle structure (engulfing, shooting star, lower highs) WITH rising volume
+  d) Bearish MA stack or MA(7) rolling over with price failing below on volume
+ 
+HOLD when ANY of these is true:
+  - Fewer than 2 aligned pillars
+  - Volume is declining or flat during consolidation
+  - Fan spread is wide and split
+  - Price is mid-range (not near support or resistance)
+  - Recent candles show indecision (doji, spinning tops, alternating small red/green)
+  - Structure is NO_EDGE
+ 
+# RANGE-SPECIFIC RULES
+Only trade range edges:
+  LONG: only at or near the lower boundary WITH bullish reaction candle + volume spike.
+  SHORT: only at or near the upper boundary WITH bearish rejection candle + volume spike.
+  Mid-range: HOLD. Do not pick direction in the middle of a range. Not even with a wds lean.
+  Not even with fan dominance. Mid-range on 15m with 7× leverage = noise zone.
+ 
+# PnL HISTORY AWARENESS
+If recent trade outcomes are provided in the user message:
+  - Multiple consecutive losses in one direction → that direction is currently unreliable.
+    Raise the bar: require an extra aligned pillar (3 instead of 2) before trading that side again.
+  - Losses on BOTH sides recently → market is likely in chop. Default to HOLD unless
+    you can identify 3+ strongly aligned pillars with volume.
+  - Do not revenge trade. Do not compensate by trading the other direction without a full setup.
+ 
+# RISK FILTER (final check before confirming LONG/SHORT)
+Before outputting LONG or SHORT, estimate the expected move:
+  - How far is the next realistic target (next S/R level)?
+  - How wide are recent candles (typical noise)?
+  - If expected move to target is not meaningfully larger than recent candle noise,
+    the risk/reward is poor even if direction is correct → HOLD.
+ 
+# PATIENCE
+Not trading IS the optimal action on most 15m bars. Structure may exist but the entry
+trigger may not be present. That is normal and correct.
+Do not lower standards because many bars have passed without a signal.
+Do not manufacture conviction from ambiguous data.
+The market does not owe you a setup every bar.
+ 
+# CONFIDENCE CALIBRATION
+TREND: regime + PA + pattern + volume all aligned → 70-80. Three pillars → 60-70.
+RANGE: at edge with 2+ pillars + volume → 60-70.
+HOLD: always 0.
+Never assign confidence > 80. This is 15m noise-heavy data with 7× leverage.
 `
 }
 
 func GetPromptConstraint() string {
 	return `# OUTPUT — exactly one JSON, no markdown, no backticks.
-
+ 
 {
   "mode": "TREND" | "RANGE" | "NO_EDGE",
   "signal": "LONG" | "SHORT" | "HOLD",
@@ -161,43 +228,9 @@ func GetPromptConstraint() string {
   "risk_note": "<1 sentence>",
   "invalidation": "<price level or condition>"
 }
-
+ 
 All fields non-empty. Invalidation must have a number.
 HOLD invalidation = what would trigger LONG or SHORT.
 Only reference prices visible in Chart B.
 `
-}
-
-// GetUserPromptTemplate returns the template for user messages.
-// Fill in the variables from Go before sending.
-func GetUserPromptTemplate() string {
-	return `# CYCLE: {timestamp}
-
-## MARKET STRUCTURE
-Range (last 20 bars): {is_ranging} ({range_pct}%)
-Trend: {trend_status}
-Support: {support} | Resistance: {resistance}
-Consecutive signals: {consec_count} {consec_side}
-
-## REGIME
-| TF | Regime | ADX | +DI | -DI | ATR | BW |
-|----|--------|-----|-----|-----|-----|----|
-{regime_rows}
-
-## PATTERN ({total_matches} matches, wds: {wds})
-| Sim% | Label | Slope | Return |
-|------|-------|-------|--------|
-{top5_rows}
-
-High(>70%): D={high_down} U={high_up} | Med(55-70%): D={med_down} U={med_up}
-
-## PnL
-{pnl_rows}
-Net: {net_pnl}
-
-## CHARTS
-Chart A (pattern): [image 1]
-Chart B (price action): [image 2]
-
-Signal.`
 }
