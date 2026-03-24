@@ -111,13 +111,8 @@ func NewLivePipeline(ctx context.Context, logger *slog.Logger, binanceClient *fu
 	if err != nil {
 		return fmt.Errorf("[LivePipeline] Checking position error: %w", err)
 	}
-	hasOrders, err := executor.HasOpenOrders(ctx)
-	if err != nil {
-		return fmt.Errorf("[LivePipeline] Checking orders error: %w", err)
-	}
-	if hasPosition || hasOrders {
-		logger.Info("[LivePipeline] Active position or order, skipping LLM.",
-			"side", side, "hasOrders", hasOrders)
+	if hasPosition {
+		logger.Info("[LivePipeline] Active position or order, skipping LLM.", "side", side)
 		return nil
 	}
 
