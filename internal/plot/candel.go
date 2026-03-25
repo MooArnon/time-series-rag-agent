@@ -279,7 +279,10 @@ func GenerateCandleChart(candles []exchange.WsRestCandle, filename string, lastN
 	p.Legend.Left = true
 	p.Legend.TextStyle.Color = TextLight
 
-	img := vgimg.New(12*vg.Inch, 8*vg.Inch)
+	img := vgimg.NewWith(
+		vgimg.UseWH(8*vg.Inch, 5*vg.Inch),
+		vgimg.UseDPI(72),
+	)
 	dc := draw.New(img)
 
 	// price = 2/3, volume = 1/3

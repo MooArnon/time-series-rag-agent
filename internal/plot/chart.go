@@ -4,11 +4,14 @@ import (
 	"fmt"
 	"image/color"
 	"math"
+	"os"
 	"time"
 
 	"gonum.org/v1/plot"
 	"gonum.org/v1/plot/plotter"
 	"gonum.org/v1/plot/vg"
+	"gonum.org/v1/plot/vg/draw"
+	"gonum.org/v1/plot/vg/vgimg"
 
 	"time-series-rag-agent/internal/embedding"
 )
@@ -147,10 +150,22 @@ func GeneratePredictionChart(currentEmbedding []float64, matches []embedding.Pat
 	p.Y.Min = plotMin
 	p.Y.Max = plotMax
 
-	if err := p.Save(12*vg.Inch, 6*vg.Inch, filename); err != nil {
+	img := vgimg.NewWith(
+		vgimg.UseWH(8*vg.Inch, 4*vg.Inch),
+		vgimg.UseDPI(72),
+	)
+	dc := draw.New(img)
+	p.Draw(dc)
+
+	w, err := os.Create(filename)
+	if err != nil {
 		return err
 	}
-	return nil
+	defer w.Close()
+
+	png := vgimg.PngCanvas{Canvas: img}
+	_, err = png.WriteTo(w)
+	return err
 }
 
 func toFloat64Slice(f32 []float32) []float64 {
