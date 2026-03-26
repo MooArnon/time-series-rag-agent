@@ -54,6 +54,43 @@ func (l *LabelCalculator) CalculateFromHistory(history []exchange.WsRestCandle) 
 	return updates
 }
 
+func (l *LabelCalculator) CalculateCanelFromHistory(history []exchange.WsRestCandle) []LabelUpdate {
+	updates := []LabelUpdate{}
+	n := len(history)
+	if n < 2 {
+		return updates
+	}
+
+	// Label A: Next Return for candle at T-1
+	if update, ok := l.calcNextReturn(history, n-2, n-1); ok {
+		updates = append(updates, update)
+	}
+
+	// Label B: Slope 3 for candle at T-3
+	targetIdx3 := n - 4
+	if targetIdx3 >= 0 {
+		futurePrices := closesSlice(history, n-3, n)
+		updates = append(updates, LabelUpdate{
+			TargetTime: history[targetIdx3].Time,
+			Column:     "next_slope_3",
+			Value:      CalculateSlope(futurePrices),
+		})
+	}
+
+	// Label C: Slope 5 for candle at T-5
+	targetIdx5 := n - 6
+	if targetIdx5 >= 0 {
+		futurePrices := closesSlice(history, targetIdx5+1, n)
+		updates = append(updates, LabelUpdate{
+			TargetTime: history[targetIdx5].Time,
+			Column:     "next_slope_5",
+			Value:      CalculateSlope(futurePrices),
+		})
+	}
+
+	return updates
+}
+
 // CalculateLookahead generates labels by looking AHEAD from idx.
 // Used in bulk mode: we know the future, so we compute labels directly.
 func (l *LabelCalculator) CalculateLookahead(history []exchange.WsRestCandle, idx int, targetTime int64) []LabelUpdate {

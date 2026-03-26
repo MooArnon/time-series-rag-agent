@@ -20,7 +20,7 @@ func NewEmbeddingPipeline(
 	fc := embedding.NewFeatureCalculator(symbol, interval, vectorSize)
 	wsRestCandle := embedding.MergeCandles(wsCandle, restCandle)
 
-	featureCalculateCandle := wsRestCandle[:vectorSize+1]
+	featureCalculateCandle := wsRestCandle[len(wsRestCandle)-(vectorSize+1):]
 	feature := fc.Calculate(featureCalculateCandle)
 
 	// -- Labels -- //
@@ -64,4 +64,21 @@ func NewBackfillEmbeddingPipeline(
 	}
 
 	return features, labels
+}
+
+func NewEmbeddingFeaturePipeline(
+	logger slog.Logger,
+	wsCandle []exchange.WsCandle,
+	restCandle []exchange.RestCandle,
+	vectorSize int,
+	symbol string,
+	interval string,
+) *embedding.PatternFeature {
+	logger.Info("[EmbeddingPipeline] Starting Embedding Pipeline")
+	// -- Features -- //
+	fc := embedding.NewFeatureCalculator(symbol, interval, vectorSize)
+
+	feature := fc.CalculateRest(restCandle)
+
+	return feature
 }

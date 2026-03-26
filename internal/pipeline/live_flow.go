@@ -83,6 +83,8 @@ func NewLivePipeline(ctx context.Context, logger *slog.Logger, binanceClient *fu
 		return fmt.Errorf("[LivePipeline] feature is nil")
 	}
 
+	logger.Info("[LivePipeline] feature time", "unix", feature.Time.Unix(), "ws_time", wsCandle[len(wsCandle)-1].Time)
+
 	// --- 3) DB upserts (ทำเสมอ ไม่ว่าจะ cooldown หรือไม่) ---
 	g2, ctx2 := errgroup.WithContext(ctx)
 
