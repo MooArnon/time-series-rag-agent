@@ -1,6 +1,7 @@
 package exchange
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"math"
@@ -54,7 +55,6 @@ func FetchLatestRegimes(
 	cfg *config.AppConfig,
 	symbol string,
 	intervals []string,
-	candles []WsRestCandle,
 ) (map[string]IntervalRegime, error) {
 	results := make(map[string]IntervalRegime)
 
@@ -62,11 +62,24 @@ func FetchLatestRegimes(
 	const fetchLimit = 120
 
 	for _, interval := range intervals {
-		logger.Info(fmt.Sprintf("Fetching regime for %s %s", symbol, interval))
+		klines, err := client.NewKlinesService().
+			Symbol(symbol).
+			Interval(interval).
+			Limit(fetchLimit).
+			Do(context.Background())
+		if err != nil {
+			return nil, fmt.Errorf("fetching %s candles: %w", interval, err)
+		}
+
+		candles, err := parseKLinesToRestCandle(klines)
+		if err != nil {
+			return nil, fmt.Errorf("fetching %s candles: %w", interval, err)
+		}
 
 		if len(candles) < 101 {
-			logger.Error(fmt.Sprintf("Not enough candles for %s %s: got %d", symbol, interval, len(candles)))
-			return nil, fmt.Errorf("not enough candles for %s %s: got %d, need 101", symbol, interval, len(candles))
+			logger.Error(fmt.Sprintf("Not enough candles for %s %s: got %d",
+				symbol, interval, len(candles)))
+			continue
 		}
 
 		adx := CalcADX(candles, 14)
@@ -116,7 +129,7 @@ func FetchLatestRegimes(
 	return results, nil
 }
 
-func (r *RegimeTrend) PredictTrend(logger slog.Logger, Symbol string, Interval string, VectorWindow int, candle []WsRestCandle) (RegimeResult, error) {
+func (r *RegimeTrend) PredictTrend(logger slog.Logger, Symbol string, Interval string, VectorWindow int, candle []RestCandle) (RegimeResult, error) {
 	cfg := config.LoadConfig()
 	logger.Info("Predicting market trend using regime detection...")
 
@@ -160,7 +173,7 @@ func (r *RegimeTrend) PredictTrend(logger slog.Logger, Symbol string, Interval s
 
 // Calculations for regime detection would go here, but for simplicity, we return a fixed value. //
 // ATR Ratio Calculation
-func trueRange(c, prev WsRestCandle) float64 {
+func trueRange(c, prev RestCandle) float64 {
 	return math.Max(
 		c.High-c.Low,
 		math.Max(
@@ -170,7 +183,7 @@ func trueRange(c, prev WsRestCandle) float64 {
 	)
 }
 
-func calcATR(candles []WsRestCandle, period int) float64 {
+func calcATR(candles []RestCandle, period int) float64 {
 	if len(candles) < period+1 {
 		return 0
 	}
@@ -189,7 +202,7 @@ func calcATR(candles []WsRestCandle, period int) float64 {
 	return atr
 }
 
-func CalcATRRatio(candles []WsRestCandle) float64 {
+func CalcATRRatio(candles []RestCandle) float64 {
 	if len(candles) < 101 {
 		return 0
 	}
@@ -208,7 +221,7 @@ type adxResult struct {
 	MinusDI float64
 }
 
-func CalcADX(candles []WsRestCandle, period int) adxResult {
+func CalcADX(candles []RestCandle, period int) adxResult {
 	if len(candles) < period*2 {
 		return adxResult{}
 	}
@@ -305,7 +318,7 @@ func CalcADX(candles []WsRestCandle, period int) adxResult {
 }
 
 // BBW Calculation
-func CalcBandWidth(candles []WsRestCandle, period int) float64 {
+func CalcBandWidth(candles []RestCandle, period int) float64 {
 	if len(candles) < period {
 		return 0
 	}

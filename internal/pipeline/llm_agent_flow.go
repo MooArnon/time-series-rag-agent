@@ -20,6 +20,7 @@ const (
 	CHART_FILE_NAME        = "chart.png"
 	LATEST_CANDLE_PLOT     = 45
 	TRADING_LOOK_BACK_DAYS = 2
+	TopN1H                 = 10
 )
 
 func NewLLMPatternAgent(ctx context.Context, futureClient *futures.Client, logger slog.Logger, appConfig *config.AppConfig, dbConfig config.DatabaseConfig, openRouterConfig config.OpenRouterConfig, symbol string, interval string, candel []exchange.WsRestCandle, feature []float64, topN int) (llm.TradeSignal, error) {
@@ -43,12 +44,18 @@ func NewLLMPatternAgent(ctx context.Context, futureClient *futures.Client, logge
 		return llm.TradeSignal{}, err
 	}
 
+	patterns1h, err := db.QueryTopN(ctx, symbol, "1h", feature, TopN1H)
+	if err != nil {
+		logger.Error("[LLMPatternPipeline] Error from query Top n")
+		return llm.TradeSignal{}, err
+	}
+
 	plot.GenerateCandleChart(candel, CANDLE_FILE_NAME, LATEST_CANDLE_PLOT)
 	plot.GeneratePredictionChart(feature, patterns, CHART_FILE_NAME)
 	logger.Info("[LLMPatternPipeline] Finished plot")
 
 	llmService := llm.NewLLMService(openRouterConfig.ApiKey)
-	regime, err := exchange.FetchLatestRegimes(logger, futureClient, appConfig, symbol, []string{"4h", "1d"}, candel)
+	regime, err := exchange.FetchLatestRegimes(logger, futureClient, appConfig, symbol, []string{"4h", "1d"})
 	if err != nil {
 		logger.Error("[LLMPatternPipeline] Regime fetching")
 		return llm.TradeSignal{}, err
@@ -75,7 +82,7 @@ func NewLLMPatternAgent(ctx context.Context, futureClient *futures.Client, logge
 
 	logger.Info(fmt.Sprintf("Current ROI=%f, PnL=%f", roi, dailyPnL))
 
-	systemMessage, userContent, b64Pattern, b64Candle, err := llmService.GenerateTradingPrompt(currentTimestamp, patterns, CHART_FILE_NAME, CANDLE_FILE_NAME, promptPositions, regime, dailyPnL)
+	systemMessage, userContent, b64Pattern, b64Candle, err := llmService.GenerateTradingPrompt(currentTimestamp, patterns, patterns1h, CHART_FILE_NAME, CANDLE_FILE_NAME, promptPositions, regime, dailyPnL)
 	if err != nil {
 		logger.Error(fmt.Sprintf("Prompt Error: %v", err))
 		return llm.TradeSignal{}, err

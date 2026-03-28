@@ -12,6 +12,7 @@ func FormatUserPrompt(
 	regime4h exchange.RegimeResult,
 	regime1d exchange.RegimeResult,
 	matches []HistoricalDetail,
+	matches1H []HistoricalDetail,
 	pnlSummary float64,
 ) string {
 	// 1. Format the PnL data into a string that can be included in the prompt
@@ -52,7 +53,13 @@ func FormatUserPrompt(
 
 	// Adding historical pattern matches
 	pattternMatchesStr := FormatPatternMatches(matches)
+	prompt += "\nMain timeframe 15 minutes"
 	prompt += pattternMatchesStr + "\n"
+
+	prompt += "\nAdditional 1H timeframe for further consideration"
+	additionalMatchesStr1H := FormatPatternMatches(matches1H)
+	prompt += additionalMatchesStr1H + "\n"
+
 	prompt += "Produce your signal."
 	return prompt
 }
