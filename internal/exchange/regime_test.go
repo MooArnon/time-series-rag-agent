@@ -29,10 +29,10 @@ func testRegimeCfg() *config.AppConfig {
 }
 
 // makeUniformCandles — flat price, tiny range → low ATR, low ADX, tight BBW
-func makeUniformCandles(n int, price float64) []WsRestCandle {
-	candles := make([]WsRestCandle, n)
+func makeUniformCandles(n int, price float64) []RestCandle {
+	candles := make([]RestCandle, n)
 	for i := range candles {
-		candles[i] = WsRestCandle{
+		candles[i] = RestCandle{
 			Time:  int64(i) * 60_000,
 			Open:  price,
 			High:  price + 0.1,
@@ -44,11 +44,11 @@ func makeUniformCandles(n int, price float64) []WsRestCandle {
 }
 
 // makeTrendingCandles — consistent uptrend → high ADX, PlusDI > MinusDI
-func makeTrendingCandles(n int, startPrice, step float64) []WsRestCandle {
-	candles := make([]WsRestCandle, n)
+func makeTrendingCandles(n int, startPrice, step float64) []RestCandle {
+	candles := make([]RestCandle, n)
 	for i := range candles {
 		base := startPrice + float64(i)*step
-		candles[i] = WsRestCandle{
+		candles[i] = RestCandle{
 			Time:  int64(i) * 60_000,
 			Open:  base,
 			High:  base + step*0.8,
@@ -60,11 +60,11 @@ func makeTrendingCandles(n int, startPrice, step float64) []WsRestCandle {
 }
 
 // makeDowntrendCandles — consistent downtrend → high ADX, MinusDI > PlusDI
-func makeDowntrendCandles(n int, startPrice, step float64) []WsRestCandle {
-	candles := make([]WsRestCandle, n)
+func makeDowntrendCandles(n int, startPrice, step float64) []RestCandle {
+	candles := make([]RestCandle, n)
 	for i := range candles {
 		base := startPrice - float64(i)*step
-		candles[i] = WsRestCandle{
+		candles[i] = RestCandle{
 			Time:  int64(i) * 60_000,
 			Open:  base,
 			High:  base + step*0.1,
@@ -76,16 +76,16 @@ func makeDowntrendCandles(n int, startPrice, step float64) []WsRestCandle {
 }
 
 // makeVolatileCandles — calm first N-14 candles, then huge spikes → ATR14 >> ATR100
-func makeVolatileCandles(n int) []WsRestCandle {
-	candles := make([]WsRestCandle, n)
+func makeVolatileCandles(n int) []RestCandle {
+	candles := make([]RestCandle, n)
 	for i := range candles {
 		if i < n-14 {
-			candles[i] = WsRestCandle{
+			candles[i] = RestCandle{
 				Time: int64(i) * 60_000,
 				Open: 100.0, High: 100.2, Low: 99.8, Close: 100.0,
 			}
 		} else {
-			candles[i] = WsRestCandle{ // enormous swing
+			candles[i] = RestCandle{ // enormous swing
 				Time: int64(i) * 60_000,
 				Open: 100.0, High: 160.0, Low: 40.0, Close: 100.0,
 			}
@@ -95,15 +95,15 @@ func makeVolatileCandles(n int) []WsRestCandle {
 }
 
 // makeOscillatingCandles — price ping-pongs → low ADX, tight BBW
-func makeOscillatingCandles(n int, base, amp float64) []WsRestCandle {
-	candles := make([]WsRestCandle, n)
+func makeOscillatingCandles(n int, base, amp float64) []RestCandle {
+	candles := make([]RestCandle, n)
 	for i := range candles {
 		sign := 1.0
 		if i%2 != 0 {
 			sign = -1.0
 		}
 		price := base + sign*amp
-		candles[i] = WsRestCandle{
+		candles[i] = RestCandle{
 			Time:  int64(i) * 60_000,
 			Open:  base,
 			High:  price + 0.05,
@@ -249,10 +249,9 @@ func TestFetchLatestRegimes_NotEnoughCandles_ReturnsError(t *testing.T) {
 	// Arrange
 	logger := testLogger()
 	cfg := testRegimeCfg()
-	candles := makeUniformCandles(50, 100.0) // < 101
 
 	// Act
-	_, err := FetchLatestRegimes(logger, nil, cfg, "BTCUSDT", []string{"15m"}, candles)
+	_, err := FetchLatestRegimes(logger, nil, cfg, "BTCUSDT", []string{"15m"})
 
 	// Assert
 	assert.Error(t, err)
@@ -263,10 +262,9 @@ func TestFetchLatestRegimes_VolatileRegime(t *testing.T) {
 	// Arrange
 	logger := testLogger()
 	cfg := testRegimeCfg()
-	candles := makeVolatileCandles(120)
 
 	// Act
-	results, err := FetchLatestRegimes(logger, nil, cfg, "BTCUSDT", []string{"15m"}, candles)
+	results, err := FetchLatestRegimes(logger, nil, cfg, "BTCUSDT", []string{"15m"})
 
 	// Assert
 	assert.NoError(t, err)
@@ -285,10 +283,8 @@ func TestFetchLatestRegimes_TrendingBullRegime(t *testing.T) {
 			BandWidthThreshold:   0.1,
 		},
 	}
-	candles := makeTrendingCandles(120, 100.0, 1.0)
-
 	// Act
-	results, err := FetchLatestRegimes(logger, nil, cfg, "BTCUSDT", []string{"1h"}, candles)
+	results, err := FetchLatestRegimes(logger, nil, cfg, "BTCUSDT", []string{"1h"})
 
 	// Assert
 	assert.NoError(t, err)
@@ -308,10 +304,8 @@ func TestFetchLatestRegimes_TrendingBearRegime(t *testing.T) {
 			BandWidthThreshold:   0.1,
 		},
 	}
-	candles := makeDowntrendCandles(120, 200.0, 1.0)
-
 	// Act
-	results, err := FetchLatestRegimes(logger, nil, cfg, "BTCUSDT", []string{"1h"}, candles)
+	results, err := FetchLatestRegimes(logger, nil, cfg, "BTCUSDT", []string{"1h"})
 
 	// Assert
 	assert.NoError(t, err)
@@ -331,10 +325,8 @@ func TestFetchLatestRegimes_RangingRegime(t *testing.T) {
 			BandWidthThreshold:   99.0, // always < this
 		},
 	}
-	candles := makeOscillatingCandles(120, 100.0, 0.5)
-
 	// Act
-	results, err := FetchLatestRegimes(logger, nil, cfg, "BTCUSDT", []string{"4h"}, candles)
+	results, err := FetchLatestRegimes(logger, nil, cfg, "BTCUSDT", []string{"4h"})
 
 	// Assert
 	assert.NoError(t, err)
@@ -345,11 +337,10 @@ func TestFetchLatestRegimes_MultipleIntervals(t *testing.T) {
 	// Arrange
 	logger := testLogger()
 	cfg := testRegimeCfg()
-	candles := makeVolatileCandles(120)
 	intervals := []string{"15m", "1h", "4h"}
 
 	// Act
-	results, err := FetchLatestRegimes(logger, nil, cfg, "ETHUSDT", intervals, candles)
+	results, err := FetchLatestRegimes(logger, nil, cfg, "ETHUSDT", intervals)
 
 	// Assert
 	assert.NoError(t, err)
@@ -365,10 +356,8 @@ func TestFetchLatestRegimes_RegimeResultFieldsPopulated(t *testing.T) {
 	// Arrange
 	logger := testLogger()
 	cfg := testRegimeCfg()
-	candles := makeTrendingCandles(120, 100.0, 0.5)
-
 	// Act
-	results, err := FetchLatestRegimes(logger, nil, cfg, "BTCUSDT", []string{"15m"}, candles)
+	results, err := FetchLatestRegimes(logger, nil, cfg, "BTCUSDT", []string{"15m"})
 
 	// Assert: all indicator fields must be non-negative
 	assert.NoError(t, err)

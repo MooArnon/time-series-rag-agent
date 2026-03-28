@@ -47,6 +47,7 @@ func NewLLMService(apiKey string) *LLMService {
 func (s *LLMService) GenerateTradingPrompt(
 	currentTime string,
 	matches []embedding.PatternLabel,
+	matches1h []embedding.PatternLabel,
 	chartPathPattern string,
 	chartPathCandel string,
 	pnlData []trade.PositionHistory,
@@ -55,7 +56,9 @@ func (s *LLMService) GenerateTradingPrompt(
 ) (string, string, string, string, error) {
 
 	var cleanData []HistoricalDetail
+	var cleanData1H []HistoricalDetail
 	var slopes []float64
+	var slopes1H []float64
 
 	for _, m := range matches {
 		slope := m.NextSlope3
@@ -88,6 +91,37 @@ func (s *LLMService) GenerateTradingPrompt(
 		})
 	}
 
+	for _, m := range matches1h {
+		slope := m.NextSlope3
+		if slope == 0 {
+			slope = m.NextSlope5
+		}
+		slopes1H = append(slopes1H, slope)
+
+		trendDir := "DOWN"
+		if slope > 0 {
+			trendDir = "UP"
+		}
+
+		// Calculate basic similarity % (1.0 - Distance)
+		// Distance usually 0.0 to 1.0 (Cosine Distance)
+		// If Distance is > 1.0 (Euclidean), this might need adjustment,
+		// but for Cosine, (1-Dist)*100 is a good proxy.
+		simScore := (1.0 - m.Distance) * 100
+		if simScore < 0 {
+			simScore = 0
+		}
+
+		cleanData1H = append(cleanData1H, HistoricalDetail{
+			Time:            m.Time.Format("2006-01-02 15:04"),
+			TrendSlope:      fmt.Sprintf("%.6f", slope),
+			TrendOutcome:    trendDir,
+			ImmediateReturn: fmt.Sprintf("%.4f%%", m.NextReturn*100),
+			Distance:        fmt.Sprintf("%.4f", m.Distance), // <--- Populated
+			Similarity:      fmt.Sprintf("%.1f%%", simScore), // <--- Populated
+		})
+	}
+
 	// Calculate Consensus
 	avgSlope := 0.0
 	positiveTrends := 0
@@ -108,7 +142,7 @@ func (s *LLMService) GenerateTradingPrompt(
 
 	regime4h := regimes["4h"].Result
 	regime1d := regimes["1d"].Result
-	userContent := FormatUserPrompt(pnlData, regime4h, regime1d, cleanData, dailyPnL)
+	userContent := FormatUserPrompt(pnlData, regime4h, regime1d, cleanData, cleanData1H, dailyPnL)
 
 	b64Pattern, err := encodeImage(chartPathPattern)
 	if err != nil {

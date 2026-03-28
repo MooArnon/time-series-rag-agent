@@ -104,6 +104,15 @@ func NewLivePipeline(ctx context.Context, logger *slog.Logger, binanceClient *fu
 		return nil
 	})
 
+	// TODO running only at 00 minute porint of time
+	g2.Go(func() error {
+		if err := RestIngestVectorFlow(logger, symbol, "1h", vectorSize); err != nil {
+			return fmt.Errorf("ingest 1h timeframe: %w", err)
+		}
+		logger.Info("[LivePipeline] Ingested 1 hour timeframe")
+		return nil
+	})
+
 	if err := g2.Wait(); err != nil {
 		hooks.OnPipelineError("phase2", err)
 		return fmt.Errorf("[LivePipeline] phase 2: %w", err)
