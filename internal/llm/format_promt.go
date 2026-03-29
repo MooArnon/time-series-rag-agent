@@ -235,6 +235,12 @@ TREND: All factors aligned → 70-80. Most factors → 60-70.
 RANGE: At edge with 3+ supporting factors → 60-70. Mid-range with strong factors → 50-60.
 BREAKOUT: Volume-confirmed break → 65-75.
 HOLD: always 0.
+
+# OUTPUT FORMAT
+Respond with ONLY a single JSON object. No preamble, no markdown, no explanation before or after.
+Do not include your reasoning outside the JSON.
+Put your analysis INSIDE the JSON fields (synthesis, pattern_read, price_action_read, etc.).
+The very first character of your response must be { and the very last must be }.
 `
 }
 
