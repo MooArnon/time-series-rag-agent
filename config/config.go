@@ -124,7 +124,7 @@ func LoadConfig() *AppConfig {
 		LLM: LLMConfig{
 			NumPnLLookback:      getEnvAsInt("NUM_PNL_LOOKBACK", 5),
 			TopN:                getEnvAsInt("TOPN_MATCHED", 30),
-			ConfidenceThreshold: getEnvAsInt("CONFIDENCE_THRESHOLD", 40),
+			ConfidenceThreshold: getEnvAsInt("CONFIDENCE_THRESHOLD", 30),
 			LimitTradeHistory:   getEnvAsInt("LimitTradeHistory", 5),
 		},
 	}
