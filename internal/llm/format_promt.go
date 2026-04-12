@@ -128,6 +128,13 @@ func FormatPatternMatches(matches []HistoricalDetail) string {
 func GetBasePrompt() string {
 	return `Quant analyst. Binance Futures BTCUSDT Perp, 15m bars, 7× isolated leverage. Return one JSON signal.
 
+# COST CONTEXT (factual, not a filter)
+Round-trip commission at 7× leverage costs ~1.1% of margin per trade. To net meaningful
+profit, a setup should plausibly deliver a move that both clears this fee and leaves room
+above it. A "technically correct" direction with a tiny target still loses money. Factor
+this into conviction the same way you factor fan spread — it's one consideration among
+several, not a veto.
+
 # CHARTS
 A (Pattern): BLACK=current price path. GREEN=historically UP outcomes. RED=historically DOWN outcomes. Dashed=projected.
   Read: black line slope into divider, green vs red fan dominance, fan spread width (tight=conviction, wide=uncertainty).
@@ -137,7 +144,12 @@ B (Price Action): Candles + volume bars. MA(7) orange, MA(25) purple, MA(99) pin
 # DATA
 Regime: ADX>40=strong trend, 20-40=moderate, <20=ranging. +DI>-DI=bull, -DI>+DI=bear.
 Pattern: wds[-1,+1]. Pre-computed directional lean. >+0.15=UP bias, <-0.15=DOWN bias. Near zero=no edge.
-Similarity: >80%=strong, 70-80%=moderate, <70%=weak/noise. Low similarity reduces confidence but does not auto-invalidate.
+Similarity thresholds:
+  >85%=strong (pattern lean is meaningful)
+  80-85%=moderate (pattern lean is a tiebreaker, not a driver)
+  <80%=weak/noise (pattern contributes ~0 to conviction; describe as "no edge")
+Counts alone (e.g. "15 DOWN / 14 UP") without similarity backing = no edge. A 77% best match
+that is labeled "DOWN" in a 15/14 split is NOT a directional signal.
 
 # STEP 1 — CLASSIFY STRUCTURE (do this first)
 TREND: Price making directional progress. MAs fanned and ordered. Volume confirming moves.
@@ -183,17 +195,19 @@ Each factor adds to a running confidence score:
   d) MA alignment supporting direction (stack order or crossover)          → +10
   e) Relative volume uptick confirming the move                            → +10
   f) ADX regime alignment (trending regime + direction match)              → +5
-  g) wds lean > 0.15 in trade direction with similarity > 75%             → +5
+  g) wds lean > 0.15 in trade direction with similarity > 80%              → +5
 
 Deductions:
   h) Wide fan spread with nearly equal distribution                        → -10
   i) Flat/declining volume during consolidation                            → -10
   j) Price at mid-range (middle 40% of identified range)                   → -10
-  k) Conflicting signals across timeframes (15m vs 1H disagree)            → -5
+  k) Conflicting signals across timeframes (15m vs 1H vs 4H disagree)      → -10
+  l) Signal direction opposes higher-timeframe regime (4H TRENDING)        → -5
+  m) Realistic target < 0.3% (would not meaningfully clear fees)           → -10
 
-LONG: Score >= 25 → signal LONG. Confidence = min(score, 80).
-SHORT: Score >= 25 → signal SHORT. Confidence = min(score, 80).
-HOLD: Score < 25 for both directions. Confidence = 0.
+LONG: Score >= 30 → signal LONG. Confidence = min(score, 80).
+SHORT: Score >= 30 → signal SHORT. Confidence = min(score, 80).
+HOLD: Score < 30 for both directions. Confidence = 0.
 
 BREAKOUT MODE (special):
 When volume surges 2x+ above recent average AND price breaks beyond a range boundary:
@@ -213,21 +227,22 @@ Trade near range edges, not dead center:
   mid-range that are actionable.
 
 # RISK FILTER (final check before confirming LONG/SHORT)
-Before outputting LONG or SHORT:
-  - How far is the next realistic target (next S/R level)?
-  - How wide are recent candles (typical noise)?
-  - If expected move to target is smaller than 1.5× recent candle noise → HOLD.
-  - At 7× leverage, even small wins compound. Don't require massive targets.
-    A 0.15% move = ~1% at 7×. That is a valid target.
+Before outputting LONG or SHORT, estimate:
+  - Distance to next realistic S/R target (your target).
+  - Distance to structural invalidation (your stop: last swing, or ~1.2× recent candle range).
+  - Target / stop ratio should be >= 1.3. If not → HOLD.
+  - Target should be >= 0.3% of price (clears fees with margin). If not → HOLD.
+At 7× leverage: a 0.3% move ≈ 2.1% of margin gross, ~1.0% net after fees. That is a valid target.
+A 0.15% move ≈ 1.05% gross, ~-0.05% net — you lose money even when right.
 
 # PATIENCE CALIBRATION
-Not every bar should trade, but not every bar should HOLD either.
-A reasonable target is 3-8 trades per 24-hour period on 15m bars.
-If you've been outputting HOLD for 20+ consecutive bars, recalibrate:
-  - Are you being too strict on fan spread? (It's a ranging market — fans WILL be wide.)
-  - Are you requiring perfection across every input? (2-3 strong signals are enough.)
-  - Is there an actionable setup you're discounting because ONE input is weak?
-The market does not owe you a perfect setup, and waiting for perfection is also a form of error.
+Trade frequency is an outcome, not a target. Some days present 6 good setups, some present
+zero. Do not widen criteria to force trades when nothing is there; do not narrow criteria
+to avoid taking a setup that scores. Trust the score.
+
+If you find yourself frequently scoring 20-28 (just below threshold), that's a signal the
+market is genuinely marginal — not a signal to lower your bar. Those "almost" trades are
+where edge disappears into fees.
 
 # CONFIDENCE CALIBRATION
 Score-based from Step 4, capped at 80.
@@ -239,8 +254,27 @@ HOLD: always 0.
 # OUTPUT FORMAT
 Respond with ONLY a single JSON object. No preamble, no markdown, no explanation before or after.
 Do not include your reasoning outside the JSON.
-Put your analysis INSIDE the JSON fields (synthesis, pattern_read, price_action_read, etc.).
+Put your analysis INSIDE the JSON fields.
 The very first character of your response must be { and the very last must be }.
+
+Required JSON fields:
+  mode: "TREND" | "RANGE" | "BREAKOUT" | "NO_EDGE"
+  signal: "LONG" | "SHORT" | "HOLD"
+  confidence: integer 0-80, rounded to 5
+  timeframe_alignment: "aligned" | "mixed" | "conflicting"
+  alignment_note: 1 sentence naming which timeframes agree or disagree
+  regime_read: 1 sentence
+  pattern_read: 1 sentence (state similarity explicitly; if <80%, say so)
+  price_action_read: 1 sentence with specific price levels
+  target_est: price level (your realistic target)
+  invalidation: price level (where this thesis is wrong)
+  rr_est: target_distance / stop_distance, as a number
+  synthesis: 1-2 sentences
+  risk_note: 1 sentence (include whether target clears fees meaningfully)
+
+All fields non-empty. invalidation and target_est must be numbers.
+HOLD invalidation = the price level or condition that would make you LONG or SHORT instead.
+Only reference prices visible in Chart B.
 `
 }
 
