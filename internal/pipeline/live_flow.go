@@ -146,6 +146,11 @@ func NewLivePipeline(ctx context.Context, logger *slog.Logger, binanceClient *fu
 		return fmt.Errorf("[LivePipeline] llm: %w", err)
 	}
 	logger.Info(fmt.Sprint("Result from Agent: ", llmOutput))
+	if llmOutput.Confidence < cfg.LLM.ConfidenceThreshold {
+		logger.Info("[LivePipeline] Low confidence, skipping order execution", "confidence", llmOutput.Confidence)
+		hooks.OnOrderExecuted(symbol, "HOLD", wsClose, "low confidence", "", "")
+		return nil
+	}
 
 	// --- 5) Order execution ---
 	if err := NewOrderExecutionPipeline(ctx, *logger, binanceClient, symbol, llmOutput.Signal, wsClose); err != nil {
@@ -154,6 +159,24 @@ func NewLivePipeline(ctx context.Context, logger *slog.Logger, binanceClient *fu
 	}
 
 	hooks.OnOrderExecuted(symbol, llmOutput.Signal, wsClose, llmOutput.Synthesis, llmOutput.PatternRead, llmOutput.PriceActionRead)
+
+	signalLog := postgresql.TradeSignalLog{
+		Time:            feature.Time,
+		Symbol:          symbol,
+		Interval:        interval,
+		Signal:          llmOutput.Signal,
+		Confidence:      llmOutput.Confidence,
+		RegimeRead:      llmOutput.RegimeRead,
+		PatternRead:     llmOutput.PatternRead,
+		PriceActionRead: llmOutput.PriceActionRead,
+		Synthesis:       llmOutput.Synthesis,
+		RiskNote:        llmOutput.RiskNote,
+		Invalidation:    llmOutput.Invalidation,
+		WsClose:         wsClose,
+	}
+	if err := dbIngest.InsertTradeSignal(ctx, signalLog); err != nil {
+		logger.Error("[LivePipeline] insert trade signal log", "err", err)
+	}
 
 	return nil
 }

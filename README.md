@@ -15,6 +15,7 @@ Flow,
 3. Embedding candles using Log return and Z-Score.
 4. Use that vector to proceed to similarity search to get the top_k to predict the next move.
 5. insert the data (Go routine) while sent the top_k plot and price action (candle plot) to LLM.
+extra: plot price action with MA and volume for further consideration.
 6. receive result from LLM.
 7. Open order or just stay still.
 8. Save plot image to S3
