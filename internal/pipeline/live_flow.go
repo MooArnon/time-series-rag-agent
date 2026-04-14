@@ -146,19 +146,6 @@ func NewLivePipeline(ctx context.Context, logger *slog.Logger, binanceClient *fu
 		return fmt.Errorf("[LivePipeline] llm: %w", err)
 	}
 	logger.Info(fmt.Sprint("Result from Agent: ", llmOutput))
-	if llmOutput.Confidence < cfg.LLM.ConfidenceThreshold {
-		logger.Info("[LivePipeline] Low confidence, skipping order execution", "confidence", llmOutput.Confidence)
-		hooks.OnOrderExecuted(symbol, "HOLD", wsClose, "low confidence", "", "")
-		return nil
-	}
-
-	// --- 5) Order execution ---
-	if err := NewOrderExecutionPipeline(ctx, *logger, binanceClient, symbol, llmOutput.Signal, wsClose); err != nil {
-		hooks.OnPipelineError("order", err)
-		return fmt.Errorf("[LivePipeline] order execution: %w", err)
-	}
-
-	hooks.OnOrderExecuted(symbol, llmOutput.Signal, wsClose, llmOutput.Synthesis, llmOutput.PatternRead, llmOutput.PriceActionRead)
 
 	signalLog := postgresql.TradeSignalLog{
 		Time:            feature.Time,
@@ -174,9 +161,32 @@ func NewLivePipeline(ctx context.Context, logger *slog.Logger, binanceClient *fu
 		Invalidation:    llmOutput.Invalidation,
 		WsClose:         wsClose,
 	}
-	if err := dbIngest.InsertTradeSignal(ctx, signalLog); err != nil {
-		logger.Error("[LivePipeline] insert trade signal log", "err", err)
+
+	// fire-and-forget log insert — ไม่ block order path
+	go func() {
+		// ใช้ context ใหม่ เผื่อ parent ctx ถูก cancel หลัง return
+		logCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := dbIngest.InsertTradeSignal(logCtx, signalLog); err != nil {
+			logger.Error("[LivePipeline] insert trade signal log", "err", err)
+			return
+		}
+		logger.Info("[LivePipeline] Inserted trading log")
+	}()
+
+	// --- ต่อไปคือ order path ที่ไม่มีอะไรบล็อก ---
+	if llmOutput.Confidence < cfg.LLM.ConfidenceThreshold {
+		logger.Info("[LivePipeline] Low confidence, skipping order execution", "confidence", llmOutput.Confidence)
+		hooks.OnOrderExecuted(symbol, "HOLD", wsClose, "low confidence", "", "")
+		return nil
 	}
+
+	if err := NewOrderExecutionPipeline(ctx, *logger, binanceClient, symbol, llmOutput.Signal, wsClose); err != nil {
+		hooks.OnPipelineError("order", err)
+		return fmt.Errorf("[LivePipeline] order execution: %w", err)
+	}
+
+	hooks.OnOrderExecuted(symbol, llmOutput.Signal, wsClose, llmOutput.Synthesis, llmOutput.PatternRead, llmOutput.PriceActionRead)
 
 	return nil
 }
