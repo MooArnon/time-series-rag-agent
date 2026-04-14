@@ -257,22 +257,7 @@ Do not include your reasoning outside the JSON.
 Put your analysis INSIDE the JSON fields.
 The very first character of your response must be { and the very last must be }.
 
-Required JSON fields:
-  mode: "TREND" | "RANGE" | "BREAKOUT" | "NO_EDGE"
-  signal: "LONG" | "SHORT" | "HOLD"
-  confidence: integer 0-80, rounded to 5
-  timeframe_alignment: "aligned" | "mixed" | "conflicting"
-  alignment_note: 1 sentence naming which timeframes agree or disagree
-  regime_read: 1 sentence
-  pattern_read: 1 sentence (state similarity explicitly; if <80%, say so)
-  price_action_read: 1 sentence with specific price levels
-  target_est: price level (your realistic target)
-  invalidation: price level (where this thesis is wrong)
-  rr_est: target_distance / stop_distance, as a number
-  synthesis: 1-2 sentences
-  risk_note: 1 sentence (include whether target clears fees meaningfully)
-
-All fields non-empty. invalidation and target_est must be numbers.
+All fields non-empty. invalidation must be numbers.
 HOLD invalidation = the price level or condition that would make you LONG or SHORT instead.
 Only reference prices visible in Chart B.
 `
@@ -290,11 +275,9 @@ func GetPromptConstraint() string {
   "price_action_read": "<1 sentence with price levels>",
   "synthesis": "<2 sentences max>",
   "risk_note": "<1 sentence>",
-  "invalidation": "<price level or condition>"
+  "invalidation": <price level>
 }
  
 All fields non-empty. Invalidation must have a number.
-HOLD invalidation = what would trigger LONG or SHORT.
-Only reference prices visible in Chart B.
 `
 }

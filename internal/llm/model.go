@@ -19,12 +19,12 @@ type HistoricalDetail struct {
 }
 
 type TradeSignal struct {
-	Signal          string `json:"signal"`      // LONG, SHORT, HOLD
-	Confidence      int    `json:"confidence"`  // 0-100 or 0.0-1.0 (handled dynamically)
-	RegimeRead      string `json:"regime_read"` // RegimeContext
-	PatternRead     string `json:"pattern_read"`
-	PriceActionRead string `json:"price_action_read"` // PriceAction
-	Synthesis       string `json:"synthesis"`         // reason
-	RiskNote        string `json:"risk_note"`
-	Invalidation    string `json:"invalidation"`
+	Signal          string  `json:"signal"`      // LONG, SHORT, HOLD
+	Confidence      int     `json:"confidence"`  // 0-100 or 0.0-1.0 (handled dynamically)
+	RegimeRead      string  `json:"regime_read"` // RegimeContext
+	PatternRead     string  `json:"pattern_read"`
+	PriceActionRead string  `json:"price_action_read"` // PriceAction
+	Synthesis       string  `json:"synthesis"`         // reason
+	RiskNote        string  `json:"risk_note"`
+	Invalidation    float64 `json:"invalidation"`
 }

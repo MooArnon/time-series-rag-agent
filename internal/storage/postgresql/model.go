@@ -13,7 +13,7 @@ type TradeSignalLog struct {
 	PriceActionRead string
 	Synthesis       string
 	RiskNote        string
-	Invalidation    string
+	Invalidation    float64
 	WsClose         float64
 	Executed        bool
 	SkipReason      string
