@@ -8,16 +8,32 @@ import (
 
 	"time-series-rag-agent/config"
 	"time-series-rag-agent/internal/exchange"
+	"time-series-rag-agent/internal/trade"
 
 	"github.com/adshao/go-binance/v2/futures"
 )
 
 func NewOrderExecutionPipeline(ctx context.Context, logger slog.Logger, futureClient *futures.Client, symbol string, signal string, priceToOpen float64) error {
 	conf := config.LoadConfig()
+
+	_, roi, err := trade.CalculateDailyROI(futureClient)
+	if err != nil {
+		logger.Error(fmt.Sprintf("[OrderExecution] Failed to calculate daily ROI: %v", err))
+	} else {
+		logger.Info(fmt.Sprintf("[OrderExecution] Current Daily ROI: %.2f%%", roi*100))
+	}
+
+	var AviableTradeRatio float64
+	if roi >= conf.Agent.ReduceRoiTrigger {
+		AviableTradeRatio = conf.Agent.ReductionAviableTradeRatio
+	} else {
+		AviableTradeRatio = conf.Agent.AviableTradeRatio
+	}
+
 	executor := exchange.NewExecutor(
 		futureClient,
 		symbol,
-		conf.Agent.AviableTradeRatio,
+		AviableTradeRatio,
 		conf.Agent.Leverage,
 		conf.Agent.SLPercentage,
 		conf.Agent.TPPercentage,
