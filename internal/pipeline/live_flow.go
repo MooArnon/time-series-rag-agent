@@ -8,6 +8,7 @@ import (
 	"time-series-rag-agent/config"
 	"time-series-rag-agent/internal/exchange"
 	"time-series-rag-agent/internal/storage/postgresql"
+	"time-series-rag-agent/internal/trade"
 	pkg "time-series-rag-agent/pkg/notifier"
 
 	"github.com/adshao/go-binance/v2/futures"
@@ -133,6 +134,24 @@ func NewLivePipeline(ctx context.Context, logger *slog.Logger, binanceClient *fu
 			"bars_remaining", barsRemaining,
 		)
 		hooks.OnOrderExecuted(symbol, "HOLD", wsClose, "cooldown", "", "")
+		return nil
+	}
+
+	_, roi, err := trade.CalculateDailyROI(binanceClient)
+	if err != nil {
+		logger.Error(fmt.Sprintf("[OrderExecution] Failed to calculate daily ROI: %v", err))
+	} else {
+		logger.Info(fmt.Sprintf("[OrderExecution] Current Daily ROI: %.2f%%", roi*100))
+	}
+
+	if roi <= cfg.Agent.StopLossROI {
+		logger.Info("[LivePipeline] Daily ROI below stop loss threshold, skipping order execution", "roi", roi)
+		hooks.OnOrderExecuted(symbol, "HOLD", wsClose, "stop loss triggered", "", "")
+		return nil
+	}
+	if roi >= cfg.Agent.StopROI {
+		logger.Info("[LivePipeline] Daily ROI above stop profit threshold, skipping order execution", "roi", roi)
+		hooks.OnOrderExecuted(symbol, "HOLD", wsClose, "stop profit triggered", "", "")
 		return nil
 	}
 

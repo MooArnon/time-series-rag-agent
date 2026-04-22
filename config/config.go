@@ -32,12 +32,14 @@ type RegimeConfig struct {
 }
 
 type AgentConfig struct {
-	AviableTradeRatio float64
-	Leverage          int
-	SLPercentage      float64
-	TPPercentage      float64
-	StopROI           float64
-	StopLossROI       float64
+	AviableTradeRatio          float64
+	Leverage                   int
+	SLPercentage               float64
+	TPPercentage               float64
+	StopROI                    float64
+	StopLossROI                float64
+	ReduceRoiTrigger           float64
+	ReductionAviableTradeRatio float64
 }
 
 type LLMConfig struct {
@@ -104,12 +106,14 @@ func LoadConfig() *AppConfig {
 			DISCORD_NOTIFY_WEBHOOK_URL: getEnv("DISCORD_NOTIFY_WEBHOOK_URL", ""),
 		},
 		Agent: AgentConfig{
-			AviableTradeRatio: getEnvAsFloat("AVIABLE_TRADE_RATIO", 0.90),
-			Leverage:          getEnvAsInt("LEVERAGE", 5),
-			SLPercentage:      getEnvAsFloat("SL_PERCENTAGE", 0.03),
-			TPPercentage:      getEnvAsFloat("TP_PERCENTAGE", 0.7),
-			StopROI:           getEnvAsFloat("STOP_ROI", 5.0),
-			StopLossROI:       getEnvAsFloat("STOP_LOSS_ROI", 10.0),
+			AviableTradeRatio:          getEnvAsFloat("AVIABLE_TRADE_RATIO", 0.90),
+			Leverage:                   getEnvAsInt("LEVERAGE", 5),
+			SLPercentage:               getEnvAsFloat("SL_PERCENTAGE", 0.03),
+			TPPercentage:               getEnvAsFloat("TP_PERCENTAGE", 0.7),
+			StopROI:                    getEnvAsFloat("STOP_ROI", 15.0),
+			StopLossROI:                getEnvAsFloat("STOP_LOSS_ROI", -5.0),
+			ReduceRoiTrigger:           getEnvAsFloat("REDUCE_ROI_TRIGGER", 5.0),
+			ReductionAviableTradeRatio: getEnvAsFloat("REDUCTION_AVIABLE_TRADE_RATIO", 0.70),
 		},
 		Que: QueConfig{
 			QueUrl: getEnv("SQS_URL", ""),
