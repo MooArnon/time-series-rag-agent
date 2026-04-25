@@ -105,9 +105,15 @@ func (e *Executor) CancelTrade(ctx context.Context) error {
 	return nil
 }
 
-// PlaceTrade executes the Main Order + Stop Loss + Take Profit
 // PlaceTrade executes the Main Order (Standard) + SL/TP (Algo)
 func (e *Executor) PlaceTrade(ctx context.Context, side string, priceToPlace float64) error {
+	// Deterministic client IDs scoped to the current 15-minute bar.
+	// Same ID on retry → Binance rejects the duplicate instead of filling twice.
+	barOpen := time.Now().UTC().Truncate(15 * time.Minute)
+	mainClientID := fmt.Sprintf("M-%d-%s", barOpen.Unix(), side)
+	slClientID := fmt.Sprintf("S-%d-%s", barOpen.Unix(), side)
+	tpClientID := fmt.Sprintf("T-%d-%s", barOpen.Unix(), side)
+
 	e.Log.Info(fmt.Sprintln("[Executor] 🧹 Cleaning up open orders..."))
 	if err := e.CancelAllOpenOrders(ctx); err != nil {
 		e.Log.Info(fmt.Sprintf("[Executor] Warning: %v\n", err))
@@ -121,12 +127,14 @@ func (e *Executor) PlaceTrade(ctx context.Context, side string, priceToPlace flo
 	tpPrice := e.CalculateTP(priceToPlace, side)
 	e.Log.Info(fmt.Sprintf("[Executor] Calculated SL price: %f", slPrice))
 
-	_, errWaitBalance := e.WaitForBalanceRelease(ctx, 21.0)
-	if errWaitBalance != nil {
-		e.Log.Info(fmt.Sprintf("[Executor] Failed while wating for balance: %v", errWaitBalance))
+	if _, err := e.WaitForBalanceRelease(ctx, 21.0); err != nil {
+		return fmt.Errorf("balance release timeout, skipping bar: %w", err)
 	}
 
 	quantity, err := e.CalculateQuantity(ctx, priceToPlace)
+	if err != nil {
+		return fmt.Errorf("failed to calculate quantity: %w", err)
+	}
 
 	e.Log.Info(fmt.Sprintf("[Executor] ⚡ PLACING TRADE: %s | Qty: %s | SL: %.4f | TP: %.4f\n", side, quantity, slPrice, tpPrice))
 
@@ -152,59 +160,64 @@ func (e *Executor) PlaceTrade(ctx context.Context, side string, priceToPlace flo
 
 	// -------------------------------------------------------------
 	// 2. MAIN ENTRY (Standard Order API)
-	// Market entries still go through the standard endpoint
 	// -------------------------------------------------------------
-
 	priceToPlaceStr := strconv.FormatFloat(priceToPlace, 'f', -1, 64)
 	mainOrder, err := e.Client.NewCreateOrderService().
 		Symbol(e.Symbol).
 		Side(mainSide).
-		Type(futures.OrderTypeLimit).            // <--- Change to Limit
-		TimeInForce(futures.TimeInForceTypeGTC). // <--- Required (Good Till Cancel)
-		Price(priceToPlaceStr).                  // <--- Required for Limit
+		Type(futures.OrderTypeLimit).
+		TimeInForce(futures.TimeInForceTypeGTC).
+		Price(priceToPlaceStr).
 		Quantity(quantity).
+		NewClientOrderID(mainClientID).
 		Do(ctx)
 
 	if err != nil {
 		return fmt.Errorf("limit order failed: %v", err)
 	}
-	e.Log.Info(fmt.Sprintf("[Executor] ✅ Limit Order Placed: %d @ %s\n", mainOrder.OrderID, priceToPlaceStr))
+	e.Log.Info(fmt.Sprintf("[Executor] ✅ Limit Order Placed: %d (clientID: %s) @ %s\n", mainOrder.OrderID, mainClientID, priceToPlaceStr))
 
 	// -------------------------------------------------------------
 	// 3. STOP LOSS (Algo Order API)
-	// Note: We use AlgoType, TriggerPrice, and ReduceOnly
+	// CRITICAL: failure here means a naked leveraged position — cancel main order and abort.
 	// -------------------------------------------------------------
-	_, err = e.Client.NewCreateAlgoOrderService().
+	slResp, err := e.Client.NewCreateAlgoOrderService().
 		Symbol(e.Symbol).
 		Side(closeSide).
 		AlgoType("CONDITIONAL").
-		Type("STOP_MARKET").      // Uses "STOP_MARKET"
-		Quantity(quantity).       // Explicit Quantity
-		ReduceOnly(true).         // Close-only
-		TriggerPrice(slPriceStr). // Algo uses TriggerPrice
+		Type("STOP_MARKET").
+		Quantity(quantity).
+		ReduceOnly(true).
+		TriggerPrice(slPriceStr).
+		ClientAlgoId(slClientID).
 		Do(ctx)
 
 	if err != nil {
-		e.Log.Info(fmt.Sprintf("[Executor] ⚠️ Stop Loss Failed: %v\n", err))
-	} else {
-		e.Log.Info(fmt.Sprintln("[Executor] 🛡️ Stop Loss Set (Algo): ", slPriceStr))
+		e.Log.Error(fmt.Sprintf("[Executor] CRITICAL: Stop Loss Failed — cancelling main order %d: %v\n", mainOrder.OrderID, err))
+		if _, cancelErr := e.Client.NewCancelOrderService().Symbol(e.Symbol).OrderID(mainOrder.OrderID).Do(ctx); cancelErr != nil {
+			e.Log.Error(fmt.Sprintf("[Executor] CRITICAL: Failed to cancel main order after SL failure: %v\n", cancelErr))
+		}
+		return fmt.Errorf("stop loss placement failed (main order cancelled): %w", err)
 	}
+	e.Log.Info(fmt.Sprintf("[Executor] 🛡️ Stop Loss Set (Algo %d): %s\n", slResp.AlgoId, slPriceStr))
 
 	// -------------------------------------------------------------
 	// 4. TAKE PROFIT (Algo Order API)
+	// SL is already armed; TP failure is non-fatal but logged at Error.
 	// -------------------------------------------------------------
 	_, err = e.Client.NewCreateAlgoOrderService().
 		Symbol(e.Symbol).
 		Side(closeSide).
 		AlgoType("CONDITIONAL").
-		Type("TAKE_PROFIT_MARKET"). // Uses "TAKE_PROFIT_MARKET"
+		Type("TAKE_PROFIT_MARKET").
 		Quantity(quantity).
 		ReduceOnly(true).
-		TriggerPrice(tpPriceStr). // Algo uses TriggerPrice
+		TriggerPrice(tpPriceStr).
+		ClientAlgoId(tpClientID).
 		Do(ctx)
 
 	if err != nil {
-		e.Log.Info(fmt.Sprintf("[Executor] ⚠️ Take Profit Failed: %v\n", err))
+		e.Log.Error(fmt.Sprintf("[Executor] ⚠️ Take Profit Failed (SL is armed): %v\n", err))
 	} else {
 		e.Log.Info(fmt.Sprintln("[Executor] 💰 Take Profit Set (Algo)"))
 	}

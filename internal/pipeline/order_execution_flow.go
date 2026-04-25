@@ -43,7 +43,8 @@ func NewOrderExecutionPipeline(ctx context.Context, logger slog.Logger, futureCl
 	tradeCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 
-	if signal == "SHORT" || signal == "LONG" {
+	switch signal {
+	case "SHORT", "LONG":
 		if err := executor.SetLeverage(tradeCtx, conf.Agent.Leverage); err != nil {
 			logger.Error(fmt.Sprintf("[OrderExecution] SetLeverage failed: %v", err))
 			return err
@@ -52,13 +53,15 @@ func NewOrderExecutionPipeline(ctx context.Context, logger slog.Logger, futureCl
 			logger.Error(fmt.Sprintf("[OrderExecution] PlaceTrade failed: %v", err))
 			return err
 		}
-	} else {
+	case "HOLD":
 		logger.Info("[OrderExecution] HOLD - checking for stale open orders...")
 		if err := executor.CancelTrade(tradeCtx); err != nil {
 			logger.Error(fmt.Sprintf("CancelTrade failed: %v", err))
 			return err
 		}
 		logger.Info("[OrderExecution] Stale order cancelled successfully")
+	default:
+		return fmt.Errorf("unknown signal %q: refusing to modify orders", signal)
 	}
 
 	return nil

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 	"time-series-rag-agent/config"
 	"time-series-rag-agent/internal/exchange"
@@ -25,7 +26,7 @@ func NewLivePipeline(ctx context.Context, logger *slog.Logger, binanceClient *fu
 		cfg.Database.DBHost, cfg.Database.DBPort, cfg.Database.DBName,
 	)
 
-	duration, err := time.ParseDuration(interval)
+	duration, err := parseBinanceInterval(interval)
 	if err != nil {
 		return fmt.Errorf("[LivePipeline] parse interval: %w", err)
 	}
@@ -208,4 +209,11 @@ func NewLivePipeline(ctx context.Context, logger *slog.Logger, binanceClient *fu
 	hooks.OnOrderExecuted(symbol, llmOutput.Signal, wsClose, llmOutput.Synthesis, llmOutput.PatternRead, llmOutput.PriceActionRead)
 
 	return nil
+}
+
+// parseBinanceInterval converts Binance interval strings (e.g. "1d", "1w") that
+// time.ParseDuration cannot handle into valid Go duration strings.
+func parseBinanceInterval(s string) (time.Duration, error) {
+	r := strings.NewReplacer("1d", "24h", "2d", "48h", "3d", "72h", "1w", "168h")
+	return time.ParseDuration(r.Replace(s))
 }
