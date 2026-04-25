@@ -72,6 +72,7 @@ func RestIngestVectorFlow(logger *slog.Logger, symbol string, interval string, v
 	if err := g1.Wait(); err != nil {
 		return fmt.Errorf("[RestIngestVectorFlow] phase 1: %w", err)
 	}
+	defer dbIngest.Close()
 
 	// ── Phase 2: Calculate feature + label (concurrent) ──
 	var (

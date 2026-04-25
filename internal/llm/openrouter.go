@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"time-series-rag-agent/internal/embedding"
@@ -29,14 +30,26 @@ const (
 
 // --- Service ---
 type LLMService struct {
-	ApiKey string
-	Client *http.Client
+	ApiKey         string
+	Client         *http.Client
+	MaxDailyTokens int
+	dailyTokens    atomic.Int64
+	lastResetDay   atomic.Int64 // year*1000+dayOfYear; reset counter when this changes
 }
 
-func NewLLMService(apiKey string) *LLMService {
+func NewLLMService(apiKey string, maxDailyTokens int) *LLMService {
 	return &LLMService{
-		ApiKey: apiKey,
-		Client: &http.Client{Timeout: 60 * time.Second}, // Increased timeout for analysis
+		ApiKey:         apiKey,
+		Client:         &http.Client{Timeout: 60 * time.Second},
+		MaxDailyTokens: maxDailyTokens,
+	}
+}
+
+func (s *LLMService) resetDailyTokensIfNeeded() {
+	now := time.Now().UTC()
+	key := int64(now.Year())*1000 + int64(now.YearDay())
+	if s.lastResetDay.Swap(key) != key {
+		s.dailyTokens.Store(0)
 	}
 }
 
@@ -152,7 +165,11 @@ func (s *LLMService) GenerateTradingPrompt(
 }
 
 // 2. GenerateSignal executes the request
-func (s *LLMService) GenerateSignal(ctx context.Context, systemPrompt, userText, imgB_B64 string, confidenceThreshold int) (*TradeSignal, error) {
+func (s *LLMService) GenerateSignal(ctx context.Context, systemPrompt, userText, imgB_B64 string) (*TradeSignal, error) {
+	s.resetDailyTokensIfNeeded()
+	if s.MaxDailyTokens > 0 && s.dailyTokens.Load() >= int64(s.MaxDailyTokens) {
+		return nil, fmt.Errorf("daily token budget exhausted (%d tokens used)", s.dailyTokens.Load())
+	}
 
 	// Construct Payload matching Anthropic Messages API spec
 	payload := map[string]interface{}{
@@ -200,8 +217,6 @@ func (s *LLMService) GenerateSignal(ctx context.Context, systemPrompt, userText,
 	req.Header.Set("x-api-key", s.ApiKey)
 	req.Header.Set("anthropic-version", "2023-06-01")
 
-	// Execute
-	fmt.Print("[LLMService] Sending request to llm service, anthropic.\n")
 	resp, err := s.Client.Do(req)
 	if err != nil {
 		return nil, err
@@ -219,11 +234,18 @@ func (s *LLMService) GenerateSignal(ctx context.Context, systemPrompt, userText,
 		return nil, err
 	}
 
-	// Safely extract content
+	// Accumulate token usage for daily budget tracking
+	if usage, ok := result["usage"].(map[string]interface{}); ok {
+		in, _ := usage["input_tokens"].(float64)
+		out, _ := usage["output_tokens"].(float64)
+		used := int64(in + out)
+		total := s.dailyTokens.Add(used)
+		log.Printf("[LLMService] tokens this call: %d | daily total: %d", used, total)
+	}
+
 	// Safely extract content (Anthropic format: content[0].text)
 	contentBlocks, ok := result["content"].([]interface{})
 	if !ok || len(contentBlocks) == 0 {
-		fmt.Println("Error: ", result)
 		return nil, fmt.Errorf("invalid response format from LLM")
 	}
 	firstBlock := contentBlocks[0].(map[string]interface{})
@@ -242,13 +264,6 @@ func (s *LLMService) GenerateSignal(ctx context.Context, systemPrompt, userText,
 	if err := json.Unmarshal([]byte(contentStr), &signal); err != nil {
 		log.Printf("⚠️ JSON Parse Fail. Raw Content: %s", contentStr)
 		return nil, err
-	}
-
-	// Filter Low Confidence (Python Logic Ported)
-	if signal.Confidence < confidenceThreshold {
-		log.Printf("⚠️ Low Confidence (%d%% < %d%%). Defaulting to HOLD.", signal.Confidence, confidenceThreshold)
-		signal.Signal = "HOLD"
-		signal.RiskNote = fmt.Sprintf("Confidence too low (%d%%)", signal.Confidence)
 	}
 
 	return &signal, nil

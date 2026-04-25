@@ -2,26 +2,36 @@ package exchange
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"strconv"
+	"sync/atomic"
+	"time"
 
 	"github.com/adshao/go-binance/v2/futures"
 )
 
+var lastHeartbeat atomic.Int64
+
 func ErrHandler() futures.ErrHandler {
 	return func(err error) {
-		log.Printf("[WS] error: %v", err)
+		slog.Error("[WS] error", "err", err)
 	}
 }
 
 func WsHandler(handler CandleHandler) futures.WsKlineHandler {
 	return func(event *futures.WsKlineEvent) {
 		if !event.Kline.IsFinal {
+			now := time.Now().Unix()
+			if now-lastHeartbeat.Load() >= 30 {
+				lastHeartbeat.Store(now)
+				slog.Info("[WS] stream alive", "symbol", event.Symbol, "startTime", event.Kline.StartTime, "close", event.Kline.Close)
+			}
 			return
 		}
+		slog.Info("[WS] final kline — dispatching pipeline", "symbol", event.Symbol, "startTime", event.Kline.StartTime, "close", event.Kline.Close)
 		candle, err := parseWsKlineToWsCandle(event)
 		if err != nil {
-			log.Printf("[WS] error converting kline to candle: %v", err)
+			slog.Error("[WS] error converting kline to candle", "err", err)
 			return
 		}
 		handler(candle)

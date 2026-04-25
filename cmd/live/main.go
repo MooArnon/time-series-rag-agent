@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"sync/atomic"
 	"syscall"
 	"time-series-rag-agent/config"
 	"time-series-rag-agent/internal/exchange"
@@ -36,20 +37,30 @@ func main() {
 		logger.Info("[Entrypoint] Error at Binance client initiate")
 		return
 	}
+	logger.Info("[Entrypoint] Binance client ready — starting WS")
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
+	var pipelineRunning atomic.Int32
+
 	exchange.StartKlineWebsocket(ctx, SYMBOL, INTERVAL, logger, func(candle exchange.WsCandle) {
 		logger.Info("[Entrypoint] received candle", "time", candle.Time, "close", candle.Close)
 
-		candleArray := []exchange.WsCandle{candle}
-		if err := pipeline.NewLivePipeline(ctx, logger, binanceClient, hooks, candleArray, SYMBOL, INTERVAL, VECTOR_SIZE, candle.Close); err != nil {
-			logger.Error(fmt.Sprintf("[Entrypoint] Live pipeline error: %v", err))
+		if !pipelineRunning.CompareAndSwap(0, 1) {
+			logger.Warn("[Entrypoint] previous pipeline still running, dropping bar", "time", candle.Time)
 			return
 		}
 
-		logger.Info("[Entrypoint] Finished live pipeline")
+		go func() {
+			defer pipelineRunning.Store(0)
+			candleArray := []exchange.WsCandle{candle}
+			if err := pipeline.NewLivePipeline(ctx, logger, binanceClient, hooks, candleArray, SYMBOL, INTERVAL, VECTOR_SIZE, candle.Close); err != nil {
+				logger.Error(fmt.Sprintf("[Entrypoint] Live pipeline error: %v", err))
+				return
+			}
+			logger.Info("[Entrypoint] Finished live pipeline")
+		}()
 	})
 
 	logger.Info("shutdown complete")

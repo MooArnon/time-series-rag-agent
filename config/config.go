@@ -47,6 +47,7 @@ type LLMConfig struct {
 	TopN                int
 	ConfidenceThreshold int
 	LimitTradeHistory   int
+	MaxDailyTokens      int
 }
 
 type QueConfig struct {
@@ -130,6 +131,7 @@ func LoadConfig() *AppConfig {
 			TopN:                getEnvAsInt("TOPN_MATCHED", 30),
 			ConfidenceThreshold: getEnvAsInt("CONFIDENCE_THRESHOLD", 30),
 			LimitTradeHistory:   getEnvAsInt("LimitTradeHistory", 5),
+			MaxDailyTokens:      getEnvAsInt("MAX_DAILY_TOKENS", 0),
 		},
 	}
 
