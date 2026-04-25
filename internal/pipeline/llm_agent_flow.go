@@ -17,7 +17,6 @@ import (
 
 const (
 	CANDLE_FILE_NAME       = "candle.png"
-	CHART_FILE_NAME        = "chart.png"
 	LATEST_CANDLE_PLOT     = 45
 	TRADING_LOOK_BACK_DAYS = 2
 	TopN1H                 = 10
@@ -51,7 +50,6 @@ func NewLLMPatternAgent(ctx context.Context, futureClient *futures.Client, logge
 	}
 
 	plot.GenerateCandleChart(candel, CANDLE_FILE_NAME, LATEST_CANDLE_PLOT)
-	plot.GeneratePredictionChart(feature, patterns, CHART_FILE_NAME)
 	logger.Info("[LLMPatternPipeline] Finished plot")
 
 	llmService := llm.NewLLMService(openRouterConfig.ApiKey)
@@ -82,7 +80,7 @@ func NewLLMPatternAgent(ctx context.Context, futureClient *futures.Client, logge
 
 	logger.Info(fmt.Sprintf("Current ROI=%f, PnL=%f", roi, dailyPnL))
 
-	systemMessage, userContent, b64Pattern, b64Candle, err := llmService.GenerateTradingPrompt(currentTimestamp, patterns, patterns1h, CHART_FILE_NAME, CANDLE_FILE_NAME, promptPositions, regime, dailyPnL)
+	systemMessage, userContent, b64Candle, err := llmService.GenerateTradingPrompt(currentTimestamp, patterns, patterns1h, CANDLE_FILE_NAME, promptPositions, regime, dailyPnL)
 	if err != nil {
 		logger.Error(fmt.Sprintf("Prompt Error: %v", err))
 		return llm.TradeSignal{}, err
@@ -90,7 +88,7 @@ func NewLLMPatternAgent(ctx context.Context, futureClient *futures.Client, logge
 	logger.Info("[LLMPatternPipeline] systemMessage", "msg", systemMessage)
 	logger.Info("[LLMPatternPipeline] userContent", "msg", userContent)
 
-	signal, err := llmService.GenerateSignal(ctx, systemMessage, userContent, b64Pattern, b64Candle, appConfig.LLM.ConfidenceThreshold)
+	signal, err := llmService.GenerateSignal(ctx, systemMessage, userContent, b64Candle, appConfig.LLM.ConfidenceThreshold)
 	if err != nil {
 		logger.Error(fmt.Sprintf("LLM Error: %v", err))
 		return llm.TradeSignal{}, err

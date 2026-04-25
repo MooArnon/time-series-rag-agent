@@ -48,12 +48,11 @@ func (s *LLMService) GenerateTradingPrompt(
 	currentTime string,
 	matches []embedding.PatternLabel,
 	matches1h []embedding.PatternLabel,
-	chartPathPattern string,
 	chartPathCandel string,
 	pnlData []trade.PositionHistory,
 	regimes map[string]exchange.IntervalRegime,
 	dailyPnL float64,
-) (string, string, string, string, error) {
+) (string, string, string, error) {
 
 	var cleanData []HistoricalDetail
 	var cleanData1H []HistoricalDetail
@@ -144,27 +143,31 @@ func (s *LLMService) GenerateTradingPrompt(
 	regime1d := regimes["1d"].Result
 	userContent := FormatUserPrompt(pnlData, regime4h, regime1d, cleanData, cleanData1H, dailyPnL)
 
-	b64Pattern, err := encodeImage(chartPathPattern)
-	if err != nil {
-		return "", "", "", "", err
-	}
-
 	b64Canle, err := encodeImage(chartPathCandel)
 	if err != nil {
-		return "", "", "", "", err
+		return "", "", "", err
 	}
 
-	return systemMessage, userContent, b64Pattern, b64Canle, nil
+	return systemMessage, userContent, b64Canle, nil
 }
 
 // 2. GenerateSignal executes the request
-func (s *LLMService) GenerateSignal(ctx context.Context, systemPrompt, userText, imgA_B64, imgB_B64 string, confidenceThreshold int) (*TradeSignal, error) {
+func (s *LLMService) GenerateSignal(ctx context.Context, systemPrompt, userText, imgB_B64 string, confidenceThreshold int) (*TradeSignal, error) {
 
 	// Construct Payload matching Anthropic Messages API spec
 	payload := map[string]interface{}{
 		"model":      MODEL_NAME,
 		"max_tokens": 1000,
-		"system":     systemPrompt, // system is top-level, not a message
+		"system": []map[string]interface{}{
+			{
+				"type": "text",
+				"text": systemPrompt,
+				"cache_control": map[string]string{
+					"type": "ephemeral",
+					"ttl":  "1h",
+				},
+			},
+		},
 		"messages": []map[string]interface{}{
 			{
 				"role": "user",
@@ -172,14 +175,6 @@ func (s *LLMService) GenerateSignal(ctx context.Context, systemPrompt, userText,
 					{
 						"type": "text",
 						"text": userText,
-					},
-					{
-						"type": "image",
-						"source": map[string]string{
-							"type":       "base64",
-							"media_type": "image/png",
-							"data":       imgA_B64,
-						},
 					},
 					{
 						"type": "image",
@@ -206,7 +201,7 @@ func (s *LLMService) GenerateSignal(ctx context.Context, systemPrompt, userText,
 	req.Header.Set("anthropic-version", "2023-06-01")
 
 	// Execute
-	fmt.Print("[LLMService] Sending request to llm service, anthropic.")
+	fmt.Print("[LLMService] Sending request to llm service, anthropic.\n")
 	resp, err := s.Client.Do(req)
 	if err != nil {
 		return nil, err
