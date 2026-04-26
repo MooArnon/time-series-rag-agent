@@ -3,6 +3,7 @@ package config
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"os"
 	"strconv"
@@ -48,6 +49,7 @@ type LLMConfig struct {
 	ConfidenceThreshold int
 	LimitTradeHistory   int
 	MaxDailyTokens      int
+	PrefilterThreshold  float64 // minimum score (0-100) to proceed to LLM; 0 = use package default (35)
 }
 
 type QueConfig struct {
@@ -132,29 +134,32 @@ func LoadConfig() *AppConfig {
 			ConfidenceThreshold: getEnvAsInt("CONFIDENCE_THRESHOLD", 30),
 			LimitTradeHistory:   getEnvAsInt("LimitTradeHistory", 5),
 			MaxDailyTokens:      getEnvAsInt("MAX_DAILY_TOKENS", 0),
+			PrefilterThreshold:  getEnvAsFloat("PREFILTER_THRESHOLD", 35.0),
 		},
 	}
 
 	// 2. Fetch Secrets from AWS to overwrite sensitive fields
 	secretName := os.Getenv("AWS_SECRET_NAME")
 	if secretName != "" {
-		secrets := fetchAwsSecrets(secretName)
-
-		// Overwrite fields if the secret value exists
-		if secrets.TRADING_BOT_DB_POSTGRESQL_HOST != "" {
-			cfg.Database.DBHost = secrets.TRADING_BOT_DB_POSTGRESQL_HOST
-		}
-		if secrets.TRADING_BOT_DB_POSTGRESQL_PASSWORD != "" {
-			cfg.Database.DBPassword = secrets.TRADING_BOT_DB_POSTGRESQL_PASSWORD
-		}
-		if secrets.BinanceApiKey != "" {
-			cfg.Market.ApiKey = secrets.BinanceApiKey
-		}
-		if secrets.BinanceApiSecret != "" {
-			cfg.Market.ApiSecret = secrets.BinanceApiSecret
-		}
-		if secrets.OPENAI_API_KEY != "" {
-			cfg.OpenRouter.ApiKey = secrets.OPENAI_API_KEY
+		secrets, err := fetchAwsSecrets(secretName)
+		if err != nil {
+			log.Printf("Warning: could not fetch AWS secret '%s' (falling back to env vars): %v", secretName, err)
+		} else {
+			if secrets.TRADING_BOT_DB_POSTGRESQL_HOST != "" {
+				cfg.Database.DBHost = secrets.TRADING_BOT_DB_POSTGRESQL_HOST
+			}
+			if secrets.TRADING_BOT_DB_POSTGRESQL_PASSWORD != "" {
+				cfg.Database.DBPassword = secrets.TRADING_BOT_DB_POSTGRESQL_PASSWORD
+			}
+			if secrets.BinanceApiKey != "" {
+				cfg.Market.ApiKey = secrets.BinanceApiKey
+			}
+			if secrets.BinanceApiSecret != "" {
+				cfg.Market.ApiSecret = secrets.BinanceApiSecret
+			}
+			if secrets.OPENAI_API_KEY != "" {
+				cfg.OpenRouter.ApiKey = secrets.OPENAI_API_KEY
+			}
 		}
 	} else {
 		log.Println("Warning: AWS_SECRET_NAME not set. Using environment variables only.")
@@ -163,36 +168,30 @@ func LoadConfig() *AppConfig {
 	return cfg
 }
 
-func fetchAwsSecrets(secretName string) AwsSecretData {
-	// Load the default AWS config (credentials, region from env/profile)
+func fetchAwsSecrets(secretName string) (AwsSecretData, error) {
 	awsCfg, err := config.LoadDefaultConfig(context.TODO())
 	if err != nil {
-		log.Fatalf("Unable to load SDK config: %v", err)
+		return AwsSecretData{}, fmt.Errorf("load SDK config: %w", err)
 	}
 
-	// Create Secrets Manager client
 	svc := secretsmanager.NewFromConfig(awsCfg)
-
-	// Get the secret value
 	input := &secretsmanager.GetSecretValueInput{
 		SecretId: aws.String(secretName),
 	}
 
 	result, err := svc.GetSecretValue(context.TODO(), input)
 	if err != nil {
-		log.Fatalf("Failed to retrieve secret '%s': %v", secretName, err)
+		return AwsSecretData{}, fmt.Errorf("get secret value: %w", err)
 	}
 
-	// Parse JSON
 	var secretData AwsSecretData
 	if result.SecretString != nil {
-		err = json.Unmarshal([]byte(*result.SecretString), &secretData)
-		if err != nil {
-			log.Fatalf("Failed to unmarshal secret JSON: %v", err)
+		if err = json.Unmarshal([]byte(*result.SecretString), &secretData); err != nil {
+			return AwsSecretData{}, fmt.Errorf("unmarshal secret JSON: %w", err)
 		}
 	}
 
-	return secretData
+	return secretData, nil
 }
 
 func getEnv(key string, fallback string) string {
