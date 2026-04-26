@@ -6,7 +6,10 @@
       "Bash(xargs ls *)",
       "Bash(printenv)",
       "Bash(curl *)",
-      "Bash(xargs cat *)"
+      "Bash(xargs cat *)",
+      "Bash(xargs -I {} basename {})",
+      "Bash(go test *)",
+      "Bash(go vet *)"
     ]
   }
 }

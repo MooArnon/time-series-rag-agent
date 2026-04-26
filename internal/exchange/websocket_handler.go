@@ -10,7 +10,12 @@ import (
 	"github.com/adshao/go-binance/v2/futures"
 )
 
-var lastHeartbeat atomic.Int64
+// lastEvent is updated on every WS frame so the watchdog can detect a silently-dead stream.
+// lastHeartbeatLog gates the 30-second "stream alive" log line.
+var (
+	lastEvent        atomic.Int64
+	lastHeartbeatLog atomic.Int64
+)
 
 func ErrHandler() futures.ErrHandler {
 	return func(err error) {
@@ -20,10 +25,11 @@ func ErrHandler() futures.ErrHandler {
 
 func WsHandler(handler CandleHandler) futures.WsKlineHandler {
 	return func(event *futures.WsKlineEvent) {
+		now := time.Now().Unix()
+		lastEvent.Store(now) // refresh on every frame for watchdog
 		if !event.Kline.IsFinal {
-			now := time.Now().Unix()
-			if now-lastHeartbeat.Load() >= 30 {
-				lastHeartbeat.Store(now)
+			if now-lastHeartbeatLog.Load() >= 30 {
+				lastHeartbeatLog.Store(now)
 				slog.Info("[WS] stream alive", "symbol", event.Symbol, "startTime", event.Kline.StartTime, "close", event.Kline.Close)
 			}
 			return

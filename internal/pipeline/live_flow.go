@@ -8,6 +8,7 @@ import (
 	"time"
 	"time-series-rag-agent/config"
 	"time-series-rag-agent/internal/exchange"
+	"time-series-rag-agent/internal/prefilter"
 	"time-series-rag-agent/internal/storage/postgresql"
 	"time-series-rag-agent/internal/trade"
 	pkg "time-series-rag-agent/pkg/notifier"
@@ -153,6 +154,20 @@ func NewLivePipeline(ctx context.Context, logger *slog.Logger, binanceClient *fu
 	if roi >= cfg.Agent.StopROI {
 		logger.Info("[LivePipeline] Daily ROI above stop profit threshold, skipping order execution", "roi", roi)
 		hooks.OnOrderExecuted(symbol, "HOLD", wsClose, "stop profit triggered", "", "")
+		return nil
+	}
+
+	// --- 3.9) Pre-filter gate — skip LLM on low-edge bars ---
+	pfResult := prefilter.RunPrefilter(prefilter.Input{
+		Candles:   wsRestCandle,
+		Threshold: cfg.LLM.PrefilterThreshold,
+	})
+	if !pfResult.PassThreshold {
+		logger.Info("[LivePipeline] prefilter skip — emitting local HOLD",
+			"score", pfResult.Score,
+			"reason", pfResult.SkipReason,
+		)
+		hooks.OnOrderExecuted(symbol, "HOLD", wsClose, "prefilter: "+pfResult.SkipReason, "", "")
 		return nil
 	}
 

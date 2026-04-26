@@ -3,7 +3,6 @@ package pkg
 import "fmt"
 
 const (
-	PATTERN_FILE_NAME      = "chart.png"
 	PRICE_ACTION_FILE_NAME = "candle.png"
 )
 
@@ -17,10 +16,6 @@ func (d *DiscordClient) NewPipelineHooks(symbol, interval string) *PipelineHooks
 			d.NotifyOrder(
 				fmt.Sprintln("Synthesis", synthesis),
 				"",
-			)
-			d.NotifyOrder(
-				fmt.Sprintln("PatternRead: ", patternRead),
-				PATTERN_FILE_NAME,
 			)
 
 			d.NotifyOrder(
