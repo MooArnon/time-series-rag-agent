@@ -3,73 +3,81 @@ package exchange
 import (
 	"context"
 	"log/slog"
+	"strings"
 	"time"
-
-	"github.com/adshao/go-binance/v2/futures"
 )
-
-const wsStaleTimeout = 2 * time.Minute
 
 type CandleHandler func(candle WsCandle)
 
-// StartKlineWebsocket connects and blocks until ctx is cancelled, reconnecting on any stream drop.
-// A watchdog goroutine forces a reconnect if no WS frames arrive for wsStaleTimeout (handles
-// the case where the TCP connection is alive but the ISP silently drops data frames).
-func StartKlineWebsocket(ctx context.Context, symbol string, interval string, logger *slog.Logger, handler CandleHandler) {
-	backoff := 3 * time.Second
+// StartKlineWebsocket polls the REST futures API for closed candles and calls handler
+// each time a new candle closes. This replaces the WS approach because
+// fstream.binance.com silently drops WS frames for certain IPs/regions while
+// the REST endpoint on the same host remains fully accessible.
+func StartKlineWebsocket(ctx context.Context, adapter KlineService, symbol string, interval string, logger *slog.Logger, handler CandleHandler) {
+	duration, err := parseIntervalDuration(interval)
+	if err != nil {
+		logger.Error("[Poll] unsupported interval", "interval", interval, "err", err)
+		return
+	}
+
+	pollEvery := duration / 4
+	if pollEvery < 30*time.Second {
+		pollEvery = 30 * time.Second
+	}
+	if pollEvery > 2*time.Minute {
+		pollEvery = 2 * time.Minute
+	}
+
+	logger.Info("[Poll] starting REST candle poll", "symbol", symbol, "interval", interval, "poll_every", pollEvery)
+
+	var lastCandleTime int64
+
+	ticker := time.NewTicker(pollEvery)
+	defer ticker.Stop()
+
 	for {
-		if ctx.Err() != nil {
-			return
-		}
-		doneCh, stopCh, err := futures.WsKlineServe(symbol, interval, WsHandler(handler), ErrHandler())
-		if err != nil {
-			logger.Error("[WS] connect failed, retrying", "err", err, "backoff", backoff)
-			select {
-			case <-time.After(backoff):
-				if backoff < 60*time.Second {
-					backoff *= 2
-				}
-				continue
-			case <-ctx.Done():
-				return
-			}
-		}
-
-		backoff = 3 * time.Second
-		lastEvent.Store(time.Now().Unix()) // seed so watchdog doesn't fire immediately
-		logger.Info("[WS] connected", "symbol", symbol, "interval", interval)
-
-		// Watchdog: if no frame arrives for wsStaleTimeout, close the stream so the
-		// outer loop reconnects. This handles silent data-frame drops at network level.
-		go func() {
-			ticker := time.NewTicker(30 * time.Second)
-			defer ticker.Stop()
-			for {
-				select {
-				case <-ticker.C:
-					if time.Since(time.Unix(lastEvent.Load(), 0)) > wsStaleTimeout {
-						logger.Warn("[WS] no frames for 2 min — forcing reconnect")
-						stopCh <- struct{}{}
-						return
-					}
-				case <-doneCh:
-					return
-				case <-ctx.Done():
-					return
-				}
-			}
-		}()
-
 		select {
-		case <-doneCh:
-			logger.Warn("[WS] stream dropped, reconnecting in 3s")
-			select {
-			case <-time.After(3 * time.Second):
-			case <-ctx.Done():
-				return
+		case <-ticker.C:
+			candles, err := FetchLatestCandles(ctx, adapter, symbol, interval, 2)
+			if err != nil {
+				logger.Error("[Poll] fetch failed", "err", err)
+				continue
 			}
+			if len(candles) == 0 {
+				continue
+			}
+
+			latest := candles[len(candles)-1]
+
+			if lastCandleTime == 0 {
+				// seed on first poll — don't fire, just remember where we are
+				lastCandleTime = latest.Time
+				logger.Info("[Poll] seeded", "symbol", symbol, "candle_time", latest.Time)
+				continue
+			}
+
+			if latest.Time == lastCandleTime {
+				continue
+			}
+
+			lastCandleTime = latest.Time
+			logger.Info("[Poll] new closed candle", "symbol", symbol, "time", latest.Time, "close", latest.Close)
+			handler(WsCandle{
+				Time:   latest.Time,
+				Open:   latest.Open,
+				High:   latest.High,
+				Low:    latest.Low,
+				Close:  latest.Close,
+				Volume: latest.Volume,
+			})
+
 		case <-ctx.Done():
 			return
 		}
 	}
+}
+
+func parseIntervalDuration(s string) (time.Duration, error) {
+	r := strings.NewReplacer("1d", "24h", "2d", "48h", "3d", "72h", "1w", "168h")
+	return time.ParseDuration(r.Replace(s))
 }

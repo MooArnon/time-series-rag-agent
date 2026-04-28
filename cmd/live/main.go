@@ -37,14 +37,16 @@ func main() {
 		logger.Info("[Entrypoint] Error at Binance client initiate")
 		return
 	}
-	logger.Info("[Entrypoint] Binance client ready — starting WS")
+	logger.Info("[Entrypoint] Binance client ready — starting poll")
+
+	adapter := exchange.NewBinanceAdapter(binanceClient)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
 	var pipelineRunning atomic.Int32
 
-	exchange.StartKlineWebsocket(ctx, SYMBOL, INTERVAL, logger, func(candle exchange.WsCandle) {
+	exchange.StartKlineWebsocket(ctx, adapter, SYMBOL, INTERVAL, logger, func(candle exchange.WsCandle) {
 		logger.Info("[Entrypoint] received candle", "time", candle.Time, "close", candle.Close)
 
 		if !pipelineRunning.CompareAndSwap(0, 1) {
