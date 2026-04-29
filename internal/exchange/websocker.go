@@ -4,64 +4,68 @@ import (
 	"context"
 	"log/slog"
 	"strings"
+	"sync/atomic"
 	"time"
+
+	"github.com/adshao/go-binance/v2/futures"
 )
 
 type CandleHandler func(candle WsCandle)
 
-// StartKlineWebsocket polls the REST futures API for closed candles and calls handler
-// each time a new candle closes. This replaces the WS approach because
-// fstream.binance.com silently drops WS frames for certain IPs/regions while
-// the REST endpoint on the same host remains fully accessible.
+// StartKlineWebsocket detects closed candles in real time by using the book-ticker
+// WebSocket stream (which works) as a sub-second heartbeat. Each tick checks whether
+// the wall clock has crossed a new interval boundary; when it has, the just-closed
+// candle is fetched from the REST API (also works) and dispatched to handler.
+//
+// This replaces a direct kline WebSocket subscription because fstream.binance.com
+// silently delivers no frames for the @kline stream while all other stream types
+// (including @bookTicker) work normally.
 func StartKlineWebsocket(ctx context.Context, adapter KlineService, symbol string, interval string, logger *slog.Logger, handler CandleHandler) {
 	duration, err := parseIntervalDuration(interval)
 	if err != nil {
-		logger.Error("[Poll] unsupported interval", "interval", interval, "err", err)
+		logger.Error("[Trigger] unsupported interval", "interval", interval, "err", err)
 		return
 	}
+	intervalSecs := int64(duration.Seconds())
 
-	pollEvery := duration / 4
-	if pollEvery < 30*time.Second {
-		pollEvery = 30 * time.Second
+	var lastCandleTime atomic.Int64
+	var fetching atomic.Bool
+
+	// Seed lastCandleTime from REST so we don't re-fire the most recent closed candle on startup.
+	if candles, err := FetchLatestCandles(ctx, adapter, symbol, interval, 2); err == nil && len(candles) > 0 {
+		lastCandleTime.Store(candles[len(candles)-1].Time)
+		logger.Info("[Trigger] seeded", "symbol", symbol, "candle_time", lastCandleTime.Load())
 	}
-	if pollEvery > 2*time.Minute {
-		pollEvery = 2 * time.Minute
-	}
 
-	logger.Info("[Poll] starting REST candle poll", "symbol", symbol, "interval", interval, "poll_every", pollEvery)
+	checkAndFire := func() {
+		now := time.Now().Unix()
+		currentBoundary := (now / intervalSecs) * intervalSecs
 
-	var lastCandleTime int64
+		if currentBoundary <= lastCandleTime.Load() {
+			return
+		}
+		if !fetching.CompareAndSwap(false, true) {
+			return
+		}
+		go func() {
+			defer fetching.Store(false)
+			// Brief pause so the REST server has the finalized candle available.
+			time.Sleep(2 * time.Second)
 
-	ticker := time.NewTicker(pollEvery)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ticker.C:
 			candles, err := FetchLatestCandles(ctx, adapter, symbol, interval, 2)
 			if err != nil {
-				logger.Error("[Poll] fetch failed", "err", err)
-				continue
+				logger.Error("[Trigger] REST fetch failed", "err", err)
+				return
 			}
 			if len(candles) == 0 {
-				continue
+				return
 			}
-
 			latest := candles[len(candles)-1]
-
-			if lastCandleTime == 0 {
-				// seed on first poll — don't fire, just remember where we are
-				lastCandleTime = latest.Time
-				logger.Info("[Poll] seeded", "symbol", symbol, "candle_time", latest.Time)
-				continue
+			if latest.Time <= lastCandleTime.Load() {
+				return
 			}
-
-			if latest.Time == lastCandleTime {
-				continue
-			}
-
-			lastCandleTime = latest.Time
-			logger.Info("[Poll] new closed candle", "symbol", symbol, "time", latest.Time, "close", latest.Close)
+			lastCandleTime.Store(latest.Time)
+			logger.Info("[Trigger] new closed candle", "symbol", symbol, "time", latest.Time, "close", latest.Close)
 			handler(WsCandle{
 				Time:   latest.Time,
 				Open:   latest.Open,
@@ -70,7 +74,44 @@ func StartKlineWebsocket(ctx context.Context, adapter KlineService, symbol strin
 				Close:  latest.Close,
 				Volume: latest.Volume,
 			})
+		}()
+	}
 
+	connectBackoff := 3 * time.Second
+	for {
+		if ctx.Err() != nil {
+			return
+		}
+
+		doneCh, _, err := futures.WsBookTickerServe(
+			strings.ToUpper(symbol),
+			func(_ *futures.WsBookTickerEvent) { checkAndFire() },
+			func(err error) { logger.Error("[Trigger] WS error", "err", err) },
+		)
+		if err != nil {
+			logger.Error("[Trigger] connect failed, retrying", "err", err, "backoff", connectBackoff)
+			select {
+			case <-time.After(connectBackoff):
+				if connectBackoff < 60*time.Second {
+					connectBackoff *= 2
+				}
+				continue
+			case <-ctx.Done():
+				return
+			}
+		}
+
+		connectBackoff = 3 * time.Second
+		logger.Info("[Trigger] book-ticker WS connected", "symbol", symbol)
+
+		select {
+		case <-doneCh:
+			logger.Warn("[Trigger] WS dropped, reconnecting in 3s")
+			select {
+			case <-time.After(3 * time.Second):
+			case <-ctx.Done():
+				return
+			}
 		case <-ctx.Done():
 			return
 		}

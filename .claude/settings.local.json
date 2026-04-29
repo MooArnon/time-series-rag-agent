@@ -21,7 +21,8 @@
       "Bash(timeout 12 npx --yes wscat -c \"wss://fstream.binance.com/ws/BTCUSDT@kline_1m\")",
       "Bash(echo \"EXIT: $?\")",
       "Bash(node -e ' *)",
-      "Bash(node *)"
+      "Bash(node *)",
+      "Bash(python3 *)"
     ]
   }
 }
