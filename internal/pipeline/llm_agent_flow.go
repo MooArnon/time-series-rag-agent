@@ -79,7 +79,7 @@ func NewLLMPatternAgent(ctx context.Context, futureClient *futures.Client, logge
 
 	logger.Info(fmt.Sprintf("Current ROI=%f, PnL=%f", roi, dailyPnL))
 
-	systemMessage, userContent, b64Candle, err := llmService.GenerateTradingPrompt(currentTimestamp, patterns, patterns1h, CANDLE_FILE_NAME, promptPositions, regime, dailyPnL)
+	systemMessage, userContent, b64Candle, err := llmService.GenerateTradingPrompt(currentTimestamp, patterns, patterns1h, CANDLE_FILE_NAME, promptPositions, regime, dailyPnL, symbol)
 	if err != nil {
 		logger.Error(fmt.Sprintf("Prompt Error: %v", err))
 		return llm.TradeSignal{}, err

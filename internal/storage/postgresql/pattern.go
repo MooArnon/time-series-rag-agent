@@ -88,6 +88,18 @@ func (s *PatternStore) UpsertLabels(ctx context.Context, symbol, interval string
 
 func (s *PatternStore) bulkUpsertLabelColumn(ctx context.Context, symbol, interval, col string, labels []embedding.LabelUpdate) error {
 	const batchSize = 1000
+	const maxRetries = 3
+
+	sql := fmt.Sprintf(`
+		INSERT INTO market_pattern_go (time, symbol, interval, %s)
+		SELECT
+			UNNEST($1::bigint[]),
+			UNNEST($2::text[]),
+			UNNEST($3::text[]),
+			UNNEST($4::float8[])
+		ON CONFLICT (time, symbol, interval) DO UPDATE SET
+			%s = EXCLUDED.%s
+	`, col, col, col)
 
 	for i := 0; i < len(labels); i += batchSize {
 		end := i + batchSize
@@ -100,7 +112,6 @@ func (s *PatternStore) bulkUpsertLabelColumn(ctx context.Context, symbol, interv
 		values := make([]float64, len(batch))
 		symbols := make([]string, len(batch))
 		intervals := make([]string, len(batch))
-
 		for j, l := range batch {
 			times[j] = l.TargetTime
 			values[j] = l.Value
@@ -108,19 +119,23 @@ func (s *PatternStore) bulkUpsertLabelColumn(ctx context.Context, symbol, interv
 			intervals[j] = interval
 		}
 
-		sql := fmt.Sprintf(`
-            INSERT INTO market_pattern_go (time, symbol, interval, %s)
-            SELECT
-                UNNEST($1::bigint[]),
-                UNNEST($2::text[]),
-                UNNEST($3::text[]),
-                UNNEST($4::float8[])
-            ON CONFLICT (time, symbol, interval) DO UPDATE SET
-                %s = EXCLUDED.%s
-        `, col, col, col)
-
-		if _, err := s.db.Exec(ctx, sql, times, symbols, intervals, values); err != nil {
-			return fmt.Errorf("bulkUpsertLabelColumn [%s batch %d-%d]: %w", col, i, end, err)
+		var lastErr error
+		for attempt := 0; attempt <= maxRetries; attempt++ {
+			if attempt > 0 {
+				wait := time.Duration(attempt*attempt) * time.Second
+				s.logger.Warn(fmt.Sprintf("[UpsertLabels] retrying %s batch %d-%d (attempt %d/%d) after %s: %v",
+					col, i, end, attempt+1, maxRetries, wait, lastErr))
+				time.Sleep(wait)
+			}
+			batchCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
+			_, lastErr = s.db.Exec(batchCtx, sql, times, symbols, intervals, values)
+			cancel()
+			if lastErr == nil {
+				break
+			}
+		}
+		if lastErr != nil {
+			return fmt.Errorf("bulkUpsertLabelColumn [%s batch %d-%d]: %w", col, i, end, lastErr)
 		}
 	}
 	return nil

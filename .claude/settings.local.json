@@ -9,7 +9,22 @@
       "Bash(xargs cat *)",
       "Bash(xargs -I {} basename {})",
       "Bash(go test *)",
-      "Bash(go vet *)"
+      "Bash(go vet *)",
+      "Bash(env)",
+      "Bash(networksetup -listallnetworkservices)",
+      "Bash(scutil --proxy)",
+      "Bash(python3 -m json.tool)",
+      "Bash(npx wscat *)",
+      "Bash(kill %1)",
+      "Bash(wait)",
+      "Bash(npx --yes wscat -c \"wss://fstream.binance.com/ws/BTCUSDT@kline_1m\" --wait 10)",
+      "Bash(timeout 12 npx --yes wscat -c \"wss://fstream.binance.com/ws/BTCUSDT@kline_1m\")",
+      "Bash(echo \"EXIT: $?\")",
+      "Bash(node -e ' *)",
+      "Bash(node *)",
+      "Bash(python3 *)",
+      "Bash(git stash *)",
+      "Bash(chmod +x /Users/dev/time-series-rag-agent/backfill.sh)"
     ]
   }
 }
