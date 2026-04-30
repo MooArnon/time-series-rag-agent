@@ -65,6 +65,7 @@ func (s *LLMService) GenerateTradingPrompt(
 	pnlData []trade.PositionHistory,
 	regimes map[string]exchange.IntervalRegime,
 	dailyPnL float64,
+	symbol string,
 ) (string, string, string, error) {
 
 	var cleanData []HistoricalDetail
@@ -149,7 +150,7 @@ func (s *LLMService) GenerateTradingPrompt(
 
 	// historicalJson, _ := json.MarshalIndent(cleanData, "", "  ")
 
-	systemMessage := GetBasePrompt()
+	systemMessage := GetBasePrompt(symbol)
 	systemMessage += GetPromptConstraint()
 
 	regime4h := regimes["4h"].Result

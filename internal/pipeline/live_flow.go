@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 	"time-series-rag-agent/config"
 	"time-series-rag-agent/internal/exchange"
@@ -224,6 +225,74 @@ func NewLivePipeline(ctx context.Context, logger *slog.Logger, binanceClient *fu
 	hooks.OnOrderExecuted(symbol, llmOutput.Signal, wsClose, llmOutput.Synthesis, llmOutput.PatternRead, llmOutput.PriceActionRead)
 
 	return nil
+}
+
+// SelectBestOpportunity runs the prefilter for each candidate symbol in parallel
+// and returns the one with the highest score above threshold. Returns ok=false when
+// no symbol meets the threshold or all REST fetches fail.
+func SelectBestOpportunity(
+	ctx context.Context,
+	adapter exchange.KlineService,
+	candidates map[string]exchange.WsCandle,
+	symbols []string,
+	interval string,
+	vectorSize int,
+	threshold float64,
+) (symbol string, candle exchange.WsCandle, ok bool) {
+	type scored struct {
+		symbol string
+		candle exchange.WsCandle
+		score  float64
+	}
+
+	numCandles := vectorSize + 1 + 99
+	ch := make(chan scored, len(symbols))
+
+	var wg sync.WaitGroup
+	for _, sym := range symbols {
+		wg.Add(1)
+		go func(sym string) {
+			defer wg.Done()
+			wsCandle, exists := candidates[sym]
+			if !exists {
+				return
+			}
+			rest, err := exchange.FetchLatestCandles(ctx, adapter, sym, interval, numCandles)
+			if err != nil {
+				slog.Warn("[SelectBest] fetch failed", "symbol", sym, "err", err)
+				return
+			}
+			wsRest := make([]exchange.WsRestCandle, len(rest))
+			for i, c := range rest {
+				wsRest[i] = exchange.WsRestCandle{
+					Time: c.Time, Open: c.Open, High: c.High,
+					Low: c.Low, Close: c.Close, Volume: c.Volume,
+				}
+			}
+			pf := prefilter.RunPrefilter(prefilter.Input{Candles: wsRest, Threshold: threshold})
+			slog.Info("[SelectBest] scored", "symbol", sym, "score", fmt.Sprintf("%.1f", pf.Score))
+			ch <- scored{sym, wsCandle, pf.Score}
+		}(sym)
+	}
+	wg.Wait()
+	close(ch)
+
+	var best scored
+	for r := range ch {
+		if r.score > best.score {
+			best = r
+		}
+	}
+
+	if best.symbol == "" || best.score < threshold {
+		slog.Info("[SelectBest] no symbol passed prefilter",
+			"best_score", fmt.Sprintf("%.1f", best.score),
+			"threshold", threshold,
+		)
+		return "", exchange.WsCandle{}, false
+	}
+	slog.Info("[SelectBest] winner", "symbol", best.symbol, "score", fmt.Sprintf("%.1f", best.score))
+	return best.symbol, best.candle, true
 }
 
 // parseBinanceInterval converts Binance interval strings (e.g. "1d", "1w") that

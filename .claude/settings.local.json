@@ -22,7 +22,9 @@
       "Bash(echo \"EXIT: $?\")",
       "Bash(node -e ' *)",
       "Bash(node *)",
-      "Bash(python3 *)"
+      "Bash(python3 *)",
+      "Bash(git stash *)",
+      "Bash(chmod +x /Users/dev/time-series-rag-agent/backfill.sh)"
     ]
   }
 }
