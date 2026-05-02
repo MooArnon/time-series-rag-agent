@@ -188,9 +188,9 @@ Now check ADX regime, wds lean, and pattern analogues against your Chart B thesi
   - All disagree -> downgrade to HOLD, unless Chart B evidence is exceptional (volume surge + clean structural break). In that case cap confidence at 50 and note the conflict in reasoning.
   - Pattern analogues with best match <80%% similarity contribute NEITHER agreement nor disagreement - they are simply absent from this check.
 
-Step 4 - Confluence score (internal, threshold: 35)
+Step 4 - Confluence score (internal, threshold: 28)
 
-Additive:
+Additive (max stack: full positive value):
   a) Price at S/R edge (within 30%% of range width) with reaction                        -> +15
   b) Confirming candle structure in last 1-3 bars                                        -> +12
   c) MA alignment supporting direction (stack order, clean crossover)                    -> +12
@@ -199,19 +199,23 @@ Additive:
   f) Pattern analogues: best match >=80%% sim AND top-5 directional consensus matches    -> +5
   g) wds lean > 0.15 matching direction AND similarity > 80%%                             -> +5
 
-Deductive:
+Deductive (sum of all firing items, then capped at -20 total):
   h) Top-5 pattern analogues disagree (near-even UP/DOWN split with sim >=80%%)           -> -8
   i) Flat/declining volume during the setup                                              -> -10
-  j) Price mid-range (middle 40%%)                                                        -> -12
+  j) Price mid-range without continuation context (middle 40%%, no clear thrust)          -> -6
   k) Higher-timeframe regime opposes direction                                           -> -10
   l) Thesis rests on a single indicator with no confirmation                             -> -15
-  m) Realistic target < 0.3%%                                                             -> auto-HOLD
+  m) Realistic target < 0.3%%                                                             -> auto-HOLD (not a deduction; hard veto)
 
-LONG/SHORT requires internal score >= 35. Below 35 -> HOLD.
+Note on (j): mid-range alone is not disqualifying for 15m bars. Continuation patterns inside a range (flag, pennant, momentum thrust) are valid. The deduction applies when price is mid-range AND lacks any directional thrust evidence. If the setup includes a strong candle (b) or volume uptick (d) showing direction, (j) does not fire.
+
+Note on deductions: total deductive value is capped at -20 even if multiple items fire. This prevents pile-on from killing setups that have genuine additive evidence. The cap does NOT apply to (m), which remains a hard auto-HOLD.
+
+LONG/SHORT requires internal score >= 28. Below 28 -> HOLD.
 Map score to confidence (rounded to nearest 5, capped at 80):
-  score 35-45 -> confidence 45-55
-  score 45-60 -> confidence 55-70
-  score 60+  -> confidence 70-80
+  score 28-40 -> confidence 45-55
+  score 40-55 -> confidence 55-70
+  score 55+   -> confidence 70-80
 
 Step 5 - Risk gate (hard veto)
 Compute:
@@ -228,7 +232,7 @@ If any requirement fails -> HOLD. Put the computed stop (for LONG/SHORT) in the 
 
 Step 6 - BREAKOUT override
 Volume surge >= 2x the recent 10-bar average AND a decisive candle closing beyond a range boundary:
-  - Base score starts at 35 (already qualifies).
+  - Base score starts at 28 (already qualifies after the threshold change).
   - Deduct if: long opposing wick (exhaustion), HTF regime strongly against, or price already >1%% past the breakout point.
   - Never chase. If the bar that broke is already closed and price is >1%% beyond, HOLD. The trade is gone.
   - Report mode as TREND in the output, mention "breakout" in price_action_read.
@@ -236,10 +240,17 @@ Volume surge >= 2x the recent 10-bar average AND a decisive candle closing beyon
 DEFAULT BIAS
 HOLD is the default action. A trade must earn its way onto the tape by clearing Steps 2, 4, and 5. When uncertain between LONG/SHORT and HOLD -> HOLD. When uncertain between two levels for stop or target -> pick the more conservative (closer stop, closer target).
 
-Do not widen criteria to produce trades. Do not narrow criteria to skip valid setups. If you find yourself scoring 28-34 repeatedly, the market is genuinely marginal - that's where edge disappears into fees. Trust the pipeline.
+Do not widen criteria to produce trades. Do not narrow criteria to skip valid setups. If you find yourself scoring 22-27 repeatedly, the market is genuinely marginal - that's where edge disappears into fees. Trust the pipeline.
 
 PATIENCE CALIBRATION
 Trade frequency is an outcome, not a target. Some sessions present multiple setups, some present zero. Zero is a valid output.
+
+OBSERVABILITY REQUIREMENT
+For every HOLD output, the reasoning field must include:
+  - Which step ended the pipeline (Step 1 NO_EDGE / Step 2 insufficient observations / Step 4 score below 28 / Step 5 RR or target fail / Step 6 chase prevention)
+  - If Step 4: the actual computed score and which additive/deductive items fired
+
+This is mandatory for diagnostic review. A HOLD with reasoning "no setup" is non-compliant.
 `
 }
 
